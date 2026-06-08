@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>风格预览对比 — 3 选 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!--
+  使用说明：Phase 2 生成此文件时，将以下占位符替换为实际值：
+  - {{GOOGLE_FONTS_URL}} → 三个风格需要的 Google Fonts 合并 URL
+  - {{STYLE_A/B/C_*}} → 各风格的参数
+  然后保存到输出目录，引导用户打开查看。
+-->
+{{GOOGLE_FONTS_IMPORT}}
+<style>
+/* ===== 页面基础 ===== */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #e8e2d8;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 40px 20px;
+}
+
+/* ===== 卡片容器 ===== */
+.cards-container {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 1800px;
+}
+
+/* ===== 单张预览卡 ===== */
+.preview-card {
+  width: 520px;
+  background: #faf8f5;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.06), 0 8px 32px rgba(0,0,0,0.04);
+}
+
+/* 顶部 accent 色条 */
+.card-accent-bar {
+  height: 8px;
+}
+
+/* 卡片主体 */
+.card-body {
+  padding: 32px 36px 28px;
+}
+
+/* 风格名称 */
+.card-name-cn {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 2px;
+  letter-spacing: 0.03em;
+}
+
+.card-name-en {
+  font-size: 14px;
+  font-weight: 500;
+  color: #999;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.card-vibe {
+  font-size: 15px;
+  color: #777;
+  line-height: 1.5;
+  margin-bottom: 0;
+  font-style: italic;
+}
+
+/* ===== 分区 ===== */
+.card-section {
+  margin-top: 22px;
+}
+
+.card-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #aaa;
+  margin-bottom: 10px;
+}
+
+/* ===== 调色板 ===== */
+.color-swatches {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.swatch-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.swatch-circle {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+.swatch-hex {
+  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: #999;
+}
+
+/* ===== 字体展示 ===== */
+.font-display {
+  font-size: 18px;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.font-display-label {
+  font-size: 11px;
+  color: #aaa;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+}
+
+/* ===== 微型预览区 ===== */
+.mini-preview {
+  margin-top: 22px;
+  border-radius: 8px;
+  padding: 24px 28px;
+  min-height: 180px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(0,0,0,0.04);
+}
+
+.mini-accent-line {
+  height: 3px;
+  width: 48px;
+  margin-bottom: 16px;
+  border-radius: 2px;
+}
+
+.mini-preview h4 {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 10px;
+}
+
+.mini-preview p {
+  font-size: 14px;
+  line-height: 1.6;
+  opacity: 0.7;
+  margin-bottom: 14px;
+}
+
+.mini-tag {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* ===== 适用场景标签 ===== */
+.best-for-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.best-for-tag {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: #f0ece6;
+  color: #888;
+  font-weight: 500;
+}
+
+/* ===== 页面标题 ===== */
+.page-title-area {
+  text-align: center;
+  margin-bottom: 40px;
+  width: 100%;
+}
+
+.page-title-area h2 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #3d3226;
+  margin-bottom: 6px;
+}
+
+.page-title-area p {
+  font-size: 14px;
+  color: #999;
+}
+
+/* ===== 响应式 ===== */
+@media (max-width: 1200px) {
+  .cards-container { flex-direction: column; align-items: center; }
+  .preview-card { width: 100%; max-width: 520px; }
+}
+</style>
+</head>
+<body>
+<div style="width:100%;">
+  <div class="page-title-area">
+    <h2>风格预览对比 — 请选择你喜欢的风格</h2>
+    <p>三张卡片分别展示配色、字体与实际的幻灯片呈现效果</p>
+  </div>
+  <div class="cards-container">
+
+    <!-- ========================================== -->
+    <!--  卡片 A：{{STYLE_A_NAME}}                  -->
+    <!-- ========================================== -->
+    <div class="preview-card">
+      <div class="card-accent-bar" style="background: {{STYLE_A_ACCENT}};"></div>
+      <div class="card-body">
+        <h3 class="card-name-cn">{{STYLE_A_NAME_CN}}</h3>
+        <p class="card-name-en">{{STYLE_A_NAME_EN}}</p>
+        <p class="card-vibe">{{STYLE_A_VIBE}}</p>
+
+        <div class="card-section">
+          <span class="card-label">调色板</span>
+          <div class="color-swatches">
+            {{STYLE_A_COLORS}}
+          </div>
+        </div>
+
+        <div class="card-section">
+          <span class="card-label">字体</span>
+          <p class="font-display" style="font-family: {{STYLE_A_HEADING_FONT}};">{{STYLE_A_HEADING_FONT}} — 标题</p>
+          <p class="font-display" style="font-family: {{STYLE_A_BODY_FONT}};">{{STYLE_A_BODY_FONT}} — 正文</p>
+        </div>
+
+        <div class="mini-preview" style="background: {{STYLE_A_BG}}; color: {{STYLE_A_TEXT}};">
+          <div class="mini-accent-line" style="background: {{STYLE_A_ACCENT}};"></div>
+          <h4 style="font-family: {{STYLE_A_HEADING_FONT}};">{{STYLE_A_SAMPLE_TITLE}}</h4>
+          <p style="font-family: {{STYLE_A_BODY_FONT}};">{{STYLE_A_SAMPLE_BODY}}</p>
+          <span class="mini-tag" style="background: {{STYLE_A_ACCENT}}; color: {{STYLE_A_BG}};">{{STYLE_A_SAMPLE_TAG}}</span>
+        </div>
+
+        <div class="card-section">
+          <span class="card-label">最适场景</span>
+          <div class="best-for-tags">
+            {{STYLE_A_BEST_FOR}}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!--  卡片 B：{{STYLE_B_NAME}}                  -->
+    <!-- ========================================== -->
+    <div class="preview-card">
+      <div class="card-accent-bar" style="background: {{STYLE_B_ACCENT}};"></div>
+      <div class="card-body">
+        <h3 class="card-name-cn">{{STYLE_B_NAME_CN}}</h3>
+        <p class="card-name-en">{{STYLE_B_NAME_EN}}</p>
+        <p class="card-vibe">{{STYLE_B_VIBE}}</p>
+
+        <div class="card-section">
+          <span class="card-label">调色板</span>
+          <div class="color-swatches">
+            {{STYLE_B_COLORS}}
+          </div>
+        </div>
+
+        <div class="card-section">
+          <span class="card-label">字体</span>
+          <p class="font-display" style="font-family: {{STYLE_B_HEADING_FONT}};">{{STYLE_B_HEADING_FONT}} — 标题</p>
+          <p class="font-display" style="font-family: {{STYLE_B_BODY_FONT}};">{{STYLE_B_BODY_FONT}} — 正文</p>
+        </div>
+
+        <div class="mini-preview" style="background: {{STYLE_B_BG}}; color: {{STYLE_B_TEXT}};">
+          <div class="mini-accent-line" style="background: {{STYLE_B_ACCENT}};"></div>
+          <h4 style="font-family: {{STYLE_B_HEADING_FONT}};">{{STYLE_B_SAMPLE_TITLE}}</h4>
+          <p style="font-family: {{STYLE_B_BODY_FONT}};">{{STYLE_B_SAMPLE_BODY}}</p>
+          <span class="mini-tag" style="background: {{STYLE_B_ACCENT}}; color: {{STYLE_B_BG}};">{{STYLE_B_SAMPLE_TAG}}</span>
+        </div>
+
+        <div class="card-section">
+          <span class="card-label">最适场景</span>
+          <div class="best-for-tags">
+            {{STYLE_B_BEST_FOR}}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!--  卡片 C：{{STYLE_C_NAME}}                  -->
+    <!-- ========================================== -->
+    <div class="preview-card">
+      <div class="card-accent-bar" style="background: {{STYLE_C_ACCENT}};"></div>
+      <div class="card-body">
+        <h3 class="card-name-cn">{{STYLE_C_NAME_CN}}</h3>
+        <p class="card-name-en">{{STYLE_C_NAME_EN}}</p>
+        <p class="card-vibe">{{STYLE_C_VIBE}}</p>
+
+        <div class="card-section">
+          <span class="card-label">调色板</span>
+          <div class="color-swatches">
+            {{STYLE_C_COLORS}}
+          </div>
+        </div>
+
+        <div class="card-section">
+          <span class="card-label">字体</span>
+          <p class="font-display" style="font-family: {{STYLE_C_HEADING_FONT}};">{{STYLE_C_HEADING_FONT}} — 标题</p>
+          <p class="font-display" style="font-family: {{STYLE_C_BODY_FONT}};">{{STYLE_C_BODY_FONT}} — 正文</p>
+        </div>
+
+        <div class="mini-preview" style="background: {{STYLE_C_BG}}; color: {{STYLE_C_TEXT}};">
+          <div class="mini-accent-line" style="background: {{STYLE_C_ACCENT}};"></div>
+          <h4 style="font-family: {{STYLE_C_HEADING_FONT}};">{{STYLE_C_SAMPLE_TITLE}}</h4>
+          <p style="font-family: {{STYLE_C_BODY_FONT}};">{{STYLE_C_SAMPLE_BODY}}</p>
+          <span class="mini-tag" style="background: {{STYLE_C_ACCENT}}; color: {{STYLE_C_BG}};">{{STYLE_C_SAMPLE_TAG}}</span>
+        </div>
+
+        <div class="card-section">
+          <span class="card-label">最适场景</span>
+          <div class="best-for-tags">
+            {{STYLE_C_BEST_FOR}}
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>
