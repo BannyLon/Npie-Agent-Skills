@@ -4,7 +4,6 @@
 
 当前已内置：
 
-- 个人食谱教练（`personal-recipe-coach`）
 - 微信公众号自动化排版与发布引擎（`wechat-automator`）
 - 如何读书实践教练（`reading-guide`）
 - HTML 网页幻灯片生成器（`html-slides-generator`）
@@ -19,8 +18,6 @@
 Npie-Agent-Skills/
 ├── skills/
 │   ├── llms.txt                 # Skill 索引：id / 名称 / 描述 / tags
-│   ├── personal-recipe-coach    # 个人食谱推荐与菜谱生成 Skill
-│   │   └── SKILL.md
 │   ├── reading-guide            # 如何读书 Skill（四层次阅读法 → 可执行工作流）
 │   │   ├── SKILL.md
 │   │   ├── README.md
@@ -47,7 +44,6 @@ Npie-Agent-Skills/
 
 ```txt
 # id | 名称 | 描述 | tags（英文/中文逗号分隔）
-personal-recipe-coach | 个人食谱助手 | 个人食谱推荐与菜谱生成助手 | recipe,food,cooking,菜谱,做饭
 wechat-automator      | 微信公众号排版与自动发布 | 一站式将 Markdown 优化排版并上传至公众号草稿箱的自动化 Skill | wechat,公众号,排版,自动化,bot
 reading-guide         | 如何读书实践教练 | 基于《如何阅读一本书》四层次阅读法的 AI 阅读教练 | reading,books,学习,读书,笔记
 html-slides-generator | HTML 网页幻灯片生成器 | 零依赖、单文件、极致美观的 HTML 网页幻灯片生成器 | slides,ppt,演示文稿,网页PPT,html,deck,keynote
@@ -59,21 +55,7 @@ html-slides-generator | HTML 网页幻灯片生成器 | 零依赖、单文件、
 
 ## 已包含的 Skills
 
-### 1. personal-recipe-coach
-
-**定位：** 个人食谱推荐与菜谱生成助手。
-
-典型场景：
-
-- 根据「冰箱里现有食材」自动组合可做菜品  
-- 按「热量 / 蛋白质 / 碳水」约束生成一日三餐方案  
-- 将零散的做饭想法整理成标准菜谱（含步骤与备料）
-
-详见 `skills/personal-recipe-coach/SKILL.md` 使用说明。
-
----
-
-### 2. wechat-automator
+### 1. wechat-automator
 
 **定位：** 一站式微信公众号内容资产化引擎 —— 把短期流量（视频 / 笔记 / 碎片资料）转化为长期内容复利。
 
@@ -84,7 +66,7 @@ html-slides-generator | HTML 网页幻灯片生成器 | 零依赖、单文件、
 
 ---
 
-### 3. reading-guide
+### 2. reading-guide
 
 **定位：** 基于《如何阅读一本书》（莫提默·J·艾德勒 & 查尔斯·范多伦）的 AI 阅读教练，把四层次阅读法工程化——不是替你读完一本书，而是教你学会自己读。
 
@@ -100,7 +82,7 @@ html-slides-generator | HTML 网页幻灯片生成器 | 零依赖、单文件、
 
 ---
 
-### 4. html-slides-generator
+### 3. html-slides-generator
 
 **定位：** 零依赖、单文件、极致美观的 HTML 网页幻灯片生成器，把任何文本内容一键变成可分享、可演示的交互式网页 Slides。
 
@@ -152,7 +134,6 @@ git clone https://github.com/BannyLon/Npie-Agent-Skills.git
 2. 将对应 Skill 目录放到 Claude Code 的 skills 目录，例如：
 
 ```bash
-cp -r skills/personal-recipe-coach   ~/.claude/skills/personal-recipe-coach
 cp -r skills/wechat-automator        ~/.claude/skills/wechat-automator
 cp -r skills/reading-guide           ~/.claude/skills/reading-guide
 cp -r skills/html-slides-generator   ~/.claude/skills/html-slides-generator
