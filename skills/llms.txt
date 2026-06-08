@@ -1,4 +1,4 @@
 # id | 名称 | 描述 | tags（英文/中文逗号分隔）
-personal-recipe-coach | 个人食谱助手 | 个人食谱推荐与菜谱生成助手 | recipe,food,cooking,菜谱,做饭
 wechat-automator      | 微信公众号排版与自动发布 | 一站式将 Markdown 优化排版并上传至公众号草稿箱的自动化 Skill | wechat,公众号,排版,自动化,bot
 reading-guide         | 如何读书实践教练 | 基于《如何阅读一本书》四层次阅读法的 AI 阅读教练 | reading,books,学习,读书,笔记
+html-slides-generator | HTML 网页幻灯片生成器 | 零依赖、单文件、极致美观的 HTML 网页幻灯片生成器 | slides,ppt,演示文稿,网页PPT,html,deck,keynote
