@@ -203,7 +203,7 @@ skill：
 
 每份报告包含四件套：📇 快照卡片 · 🧠 思维导图（文字大纲为主 + Mermaid 可选增强） · 📋 行动清单 · 📚 延伸阅读。
 
-默认交付 Markdown（存于 `outputs/`），**保存后必须提示用户选择 HTML 视觉版**——这不是可选步骤。5 种风格可选（学术严谨 / 数字杂志 / 极简纯净 / 暗夜影院 / Obsidian 原生），用户也可以自定义配色和排版。HTML 生成本身由用户决定，但**提示**是强制的。
+默认交付 Markdown（存于 `outputs/`），**保存后必须提示用户选择 HTML 视觉版**——这不是可选步骤。5 种风格可选（学术严谨 / 数字杂志 / 极简纯净 / 暗夜影院 / Obsidian 原生），用户也可以自定义配色和排版。HTML 生成基于 `templates/html-base.html` 模板（预置 CSS 布局 + Mermaid 思维导图渲染），通过填充 7 个占位符快速产出，不再裸写。HTML 生成本身由用户决定，但**提示**是强制的。
 
 ---
 
@@ -234,7 +234,8 @@ reading-guide/
 │   ├── inspectional-report.md       # 检视报告（≤400字）
 │   ├── analytical-reading.md        # 分析阅读三阶段交付模板
 │   ├── fiction.md                   # 虚构类路径
-│   └── syntopical.md                # 主题阅读
+│   ├── syntopical.md                # 主题阅读
+│   └── html-base.html               # HTML 视觉版基础模板（CSS+Mermaid+占位符）
 └── outputs/                         # 运行时产出（分析阅读报告等）
 ```
 
