@@ -43,7 +43,7 @@
 
 - [Claude Code](https://claude.ai/code)（CLI 或 IDE 扩展）
 - （可选）微信读书 API Key——如果你用微信读书，skill 可以拉取你的划线和笔记做个性化分析。不用也完全可以，skill 会通过 Web 搜索获取公开资料
-- （可选）[Obsidian](https://obsidian.md)——模板用 Mermaid 渲染思维导图，Obsidian 原生支持
+- （可选）[Obsidian](https://obsidian.md)——模板包含 Mermaid 思维导图（需 9.3.0+ 才能渲染 mindmap）。即使环境不支持，报告中的文字大纲树状图也能独立承担可视化功能，不影响阅读体验
 
 ### 安装
 
@@ -192,7 +192,7 @@ skill：
     每个阶段末尾引导用户自己做出判断
     ↓
 第五步：结构化交付
-    Markdown → outputs/ → 提示 HTML 视觉版
+    Markdown → outputs/ → 🔔 提示 HTML 视觉版（强制）
 ```
 
 **三个用户确认闸门**确保你不会被自动推进。
@@ -201,9 +201,9 @@ skill：
 
 ## 输出格式
 
-每份报告包含四件套：📇 快照卡片 · 🧠 思维导图 · 📋 行动清单 · 📚 延伸阅读。
+每份报告包含四件套：📇 快照卡片 · 🧠 思维导图（文字大纲为主 + Mermaid 可选增强） · 📋 行动清单 · 📚 延伸阅读。
 
-默认交付 Markdown（存于 `outputs/`），可选转 HTML（5 种风格：学术严谨 / 数字杂志 / 极简纯净 / 暗夜影院 / Obsidian 原生）。
+默认交付 Markdown（存于 `outputs/`），**保存后必须提示用户选择 HTML 视觉版**——这不是可选步骤。5 种风格可选（学术严谨 / 数字杂志 / 极简纯净 / 暗夜影院 / Obsidian 原生），用户也可以自定义配色和排版。HTML 生成本身由用户决定，但**提示**是强制的。
 
 ---
 
