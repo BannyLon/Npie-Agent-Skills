@@ -28,7 +28,7 @@ version: 1.1.0
    - `wechat-automator:upload_cover(path)` — 仅上传封面图
 4. **上下文推断触发**：刚完成 oral-stylizer 处理，用户自然过渡到排版发布。
 
-**🔴 强制规则：一旦触发，必须用 `Skill` 工具加载本 skill，并严格按照 skill 内定义的五阶段流水线执行。严禁绕过 skill 自行编写脚本、手写 HTML、或直接用 `requests` 调 API。skill 的 `scripts/build_and_upload.py` 是唯一合法的执行入口。**
+**🔴 强制规则：一旦触发，必须用 `Skill` 工具加载本 skill，并严格按照 skill 内定义的五阶段流水线执行。严禁绕过 skill 自行编写脚本、手写 HTML、或直接用 `requests` 调 API。**
 
 **反触发**：纯技术咨询（「公众号 API 怎么调」）不激活，用通用知识回答。
 

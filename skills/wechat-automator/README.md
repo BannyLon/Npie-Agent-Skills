@@ -155,11 +155,10 @@ oral-stylizer → wechat-automator → humanizer-zh
 
 ```
 wechat-automator/
-├── SKILL.md                    # Skill 定义文件（Claude Code 读取）
-├── README.md                   # 本文件
+├── SKILL.md              # Skill 定义文件（Claude Code 读取，含五阶段流水线）
+├── README.md             # 本文件
 └── scripts/
-    ├── upload.py               # 微信 API 基础上传函数
-    └── build_and_upload.py     # 完整五阶段流水线（class-based → html.parser → inline → upload）
+    └── upload.py         # 微信 API 基础上传函数
 ```
 
 ---
