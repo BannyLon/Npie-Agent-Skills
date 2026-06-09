@@ -1,4 +1,4 @@
-# wechat-automator
+# wechat-automator v1.1.0
 
 > 一站式微信公众号内容资产化引擎 — 把短期流量（视频/笔记/碎片资料）转化为长期内容复利。
 
@@ -54,6 +54,8 @@ export WEIXIN_APPSECRET="你的公众号 AppSecret"
 | 「排版看看效果，先不发」 | 仅排版预览，输出 HTML 文件 |
 | 「严格按原文排版发草稿箱」 | 跳过内容修改，仅排版上传 |
 | 「仅排版，不需优化内容」 | 跳过内容修改，仅排版上传 |
+
+> ⚠️ **重要**：触发后 Claude 会自动调用 `wechat-automator` skill 并严格按其内部五阶段流水线执行。整个过程是自动化的，你不需要手动运行任何脚本。
 
 ### 豁免内容修改
 
@@ -123,6 +125,22 @@ oral-stylizer → wechat-automator → humanizer-zh
 
 ---
 
+## 常见问题
+
+### 标题/摘要显示不全或上传报错？
+
+微信 API 对标题和摘要按**字节数**（不是字符数）校验。中文字符在 UTF-8 下占 3 字节，标题实际上限约 35 字节（≈12 个纯中文）。如果标题超限，skill 自动用短标题上传，你在公众号后台可手动改回完整版——后台编辑器没有字节限制。
+
+### 草稿箱内容乱码？
+
+确保使用最新版 skill。旧版存在 JSON 序列化问题（`requests` 的 `json=` 参数默认将中文转为 `\uXXXX` 转义序列），会导致草稿箱中文全部乱码。最新版已修复此问题。
+
+### 可以只排版不上传吗？
+
+可以。说「排版看看效果，先不发」即可。skill 输出排版后的 HTML 文件供本地预览。
+
+---
+
 ## 安全与隐私
 
 - API 凭据仅从环境变量或会话内存获取，**不写入任何磁盘文件**
@@ -137,10 +155,11 @@ oral-stylizer → wechat-automator → humanizer-zh
 
 ```
 wechat-automator/
-├── SKILL.md              # Skill 定义文件（Claude Code 读取）
-├── README.md             # 本文件
+├── SKILL.md                    # Skill 定义文件（Claude Code 读取）
+├── README.md                   # 本文件
 └── scripts/
-    └── upload.py         # 微信 API 上传脚本
+    ├── upload.py               # 微信 API 基础上传函数
+    └── build_and_upload.py     # 完整五阶段流水线（class-based → html.parser → inline → upload）
 ```
 
 ---
