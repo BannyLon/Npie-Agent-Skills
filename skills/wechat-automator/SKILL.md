@@ -1,7 +1,7 @@
 ---
 name: wechat-automator
 description: 一站式内容资产化引擎：默认对内容进行深度优化（契合公众号阅读场景），精排版渲染，一键上传草稿箱。当用户提到"推文"、"公众号"、"排版"、"发布"、"草稿"、或任何将内容转化为公众号图文的意图时，必须调用此技能。
-version: 1.1.0
+version: 1.6.0
 ---
 
 # 微信公众号内容资产化引擎 (WeChat Automator)
@@ -60,8 +60,12 @@ version: 1.1.0
   │        └─ 有问题   → 告知用户问题数量，询问是否自动修复后再上传
   └─ 否 → 检查是否包含豁免关键词？
            ├─ 是 → 跳过 ①②，进入 ③ 视觉增强 → ④ 排版渲染 → ⑤ 上传
-           └─ 否 → 完整五阶段：① → ② → ③ → ④ → ⑤
+           └─ 否 → 执行阶段 ①② → 🔴 暂停，输出预览给用户确认
+                     ├─ 用户确认 → 继续 ③ 视觉增强 → ④ 排版渲染 → ⑤ 上传
+                     └─ 用户要求修改 → 修改后再次预览，直到确认
 ```
+
+**🔴 阶段 ①② 确认门禁（强制）**：执行完内容脱水 + 结构重组后，**必须暂停**，将优化后的 Markdown 内容输出给用户预览，等待用户明确确认（「确认」「可以」「继续」等）后，才能继续执行阶段 ③④⑤。禁止跳过此门禁直接完成全流程。
 
 **HTML 兼容性扫描标准**（干净 HTML 的定义）：
 - 无 `<style>` 标签
@@ -73,151 +77,133 @@ version: 1.1.0
 
 ---
 
-## 核心链路（三阶段用户视角 / 五阶段内部流水线）
+## 工作流总览（v1.6.0）
 
 ```
-用户视角（三阶段）：
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  ① 深度优化   │ ──→ │  ② 精排版渲染  │ ──→ │  ③ 一键发布   │
-│  (默认执行)   │     │  (始终执行)   │     │  草稿箱      │
-│  跳过:豁免词  │     │  跳过:干净HTML│     │              │
-└──────────────┘     └──────────────┘     └──────────────┘
-  ≡ 阶段①②             ≡ 阶段③④             ≡ 阶段⑤
+三阶段管线：
+┌──────────┐    ┌──────────────┐    ┌──────────┐
+│ ⓪ 内容优化 │ → │ ① 排版渲染    │ → │ ② 一键发布 │
+│ 脱水+去AI │    │ 推荐+预览+选择 │    │ 草稿箱    │
+│ 🔴暂停确认 │    │ 🔴暂停确认     │    │ 自动完成  │
+└──────────┘    └──────────────┘    └──────────┘
 
-内部五阶段流水线：
-┌─────────────────────────────────────────────────────────────┐
-│  输入源                     输出                              │
-│  ┌──────────┐              ┌──────────┐                     │
-│  │ 视频脚本  │              │          │                     │
-│  │ 知识笔记  │──→ 五阶段 ──→│ 公众号草稿 │                     │
-│  │ 碎片资料  │   流水线     │ (精排版)  │                     │
-│  └──────────┘              └──────────┘                     │
-│                                                             │
-│  ① 内容脱水 ──→ ② 结构重组 ──→ ③ 视觉增强 ──→ ④ 排版渲染 ──→ ⑤ 上传 │
-└─────────────────────────────────────────────────────────────┘
+详细流程：
+  输入内容
+    ↓
+  ⓪.1 内容脱水（去冗余/提论点/压密度）
+  ⓪.2 结构重组（钩子开头+正文骨架+CTA结尾）
+  ⓪.3 去AI味（humanizer-zh 审阅）
+    ↓
+  🔴 暂停 → 输出优化后内容 → 等待用户确认
+    ↓
+  ①.1 深度理解文章内容 → 分析视觉结构
+  ①.2 内容匹配分析 → 推荐最佳排版系统
+  ①.3 生成预览网页 → 浏览器并排对比 6 套系统
+    ↓
+  🔴 暂停 → 用户选择排版系统（预设名/自定义组合/自定义颜色）
+    ↓
+  ①.4 build_inline.py --theme <选定> → inline HTML
+    ↓
+  ② upload.py → 上传头图+封面 → 创建草稿
+    ↓
+  ✅ 草稿 media_id → 用户去后台预览群发
 ```
 
----
+### 确认门禁（两处强制暂停）
 
-## 阶段 ①：内容脱水（Information Distillation）
+1. **内容确认**：阶段⓪ 完成后，输出优化后的 Markdown，等用户确认
+2. **排版确认**：阶段① 预览网页打开后，等用户选定排版系统
 
-**目标**：无论输入是什么形态（视频脚本/口述稿/笔记/资料堆），先提炼出可传播的核心信息骨架。
+### 豁免规则
 
-### 输入源识别
-
-| 输入类型 | 典型特征 | 处理策略 |
-|----------|----------|----------|
-| **视频脚本** | 口语化、线性叙事、有"你看"/"咱们来看"等镜头语 | 剥离镜头指令，提取论述主线 |
-| **口述/碎碎念** | 跳跃、重复、有"就是说""然后""嗯"等口语助词 | 先调 `oral-stylizer` 做结构化 |
-| **知识笔记** | 已有一定结构，但信息密度不均 | 直接进入脱水 |
-| **资料整理** | 多来源拼合，风格不统一 | 统一视角+去重，再进入脱水 |
-
-### 脱水操作
-
-1. **去冗余**：删除重复论述、口头禅、填充性句子（"大家都知道""这里我想说的是"）。
-2. **提论点**：将散落的叙述收敛为可独立传播的**核心观点句**——每段内容必须能提炼出 1 句可以直接被引用的主干观点。
-3. **压密度**：合并相似论述，用更精炼的表达覆盖原文。目标：**信息密度提升 30-50%**。
-4. **保人味**：脱水不是脱口感。保留作者的标志性表达方式和态度。如果是 Banny 的内容，保留「Vibe Coding」「Agentic Workflow」等命名习惯。
-
-### 脱水完成标志
-
-- [ ] 每条核心观点可以用一句话复述
-- [ ] 没有出现两次以上的相同论述
-- [ ] 每段长度适合手机阅读（≤ 4 句）
-- [ ] 保留了原文的标志性语言风格
+- 用户说「不要修改内容」「一字不改」「仅排版」→ 跳过 ⓪，直接进入 ①
+- 用户引用的文件是干净 HTML → 跳过 ⓪①，直达 ②
 
 ---
 
-## 阶段 ②：结构重组（Structural Recomposition）
+## 阶段 ⓪：内容优化（Content Optimization）
 
-**目标**：将脱水的线性内容，重构成适合图文阅读的**层级化结构**。这一步的本质是完成「视频线性叙事 → 图文空间结构」的翻译。
+**目标**：输入内容 → 深度优化 → 去 AI 味 → 用户确认。
 
-### 重组策略
+### ⓪.1 内容脱水
 
-#### 开头钩子（Hook）
-- 从正文中提取最反直觉/最引发共鸣的 1 句话，前置为开篇钩子
-- 或用 2-3 句短句制造信息落差——「你以前以为 X，其实 Y」
-- 末尾用一句自然过渡连接正文
+1. **去冗余**：删除重复论述、口语填充句
+2. **提论点**：每段提炼 1 句可独立传播的核心观点
+3. **压密度**：信息密度提升 30-50%
+4. **保人味**：保留作者标志性表达（Banny 的「Vibe Coding」「Agentic Workflow」等）
 
-#### 正文架构（Body）
-根据内容类型选择一种骨架：
+### ⓪.2 结构重组
 
-| 内容类型 | 推荐结构 | 适用场景 |
-|----------|----------|----------|
-| **教程/指南** | 问题→原理→步骤→验证→总结 | 工具教学、操作流程 |
-| **观点/评论** | 现象→分析→本质→行动建议 | 行业洞察、趋势判断 |
-| **案例/复盘** | 背景→关键决策→结果→可复用方法论 | 项目复盘、经验分享 |
-| **清单/合集** | 总览→逐条展开（每条约等长）→最佳组合 | 资源推荐、工具清单 |
+- **钩子开头**：提取最反直觉的 1 句话前置，或用 2-3 句制造信息落差
+- **正文架构**：根据内容类型选择骨架（教程→问题原理步骤/观点→现象分析本质/案例→背景决策方法论/清单→总览逐条展开）
+- **H2 控制**：3-5 个板块，标题要具体（「问题是什么」而非「关于 XX 的讨论」）
+- **CTA 结尾**：给读者一个具体的下一步
 
-#### 小标题原则
-- H2：大板块之间的分界，数量控制在 3-5 个
-- H3：H2 内部子观点展开，仅当 H2 下内容超过 3 段时才使用
-- 小标题格式：「问题是什么」而非「关于 XX 的讨论」——要具体，不要虚
+### ⓪.3 去 AI 味
 
-#### 结尾行动召唤（CTA）
-- 引导关注（公众号场景）或引导看原视频（视频号场景）
-- 不是客套话，要给读者一个**具体的下一步**
+调用 `humanizer-zh` 审阅优化后的全文，去除 AI 写作特征（夸大的象征意义、宣传性语言、三段式法则、AI 词汇等）。
 
-### 重组完成标志
+### ⓪.4 确认输出
 
-- [ ] 文章有一个 2-3 句的钩子开头
-- [ ] H2 在 3-5 个之间，每个 H2 下的段落数均衡
-- [ ] 手机屏幕（约 375×667px）滚动 2-3 屏内有一个视觉节奏变化
-- [ ] 结尾有明确的行动召唤
+**🔴 必须暂停**。将优化后的 Markdown 内容输出给用户预览，等待明确确认后才能继续。
 
 ---
 
-## 阶段 ③：视觉增强（Visual Enhancement）
+## 阶段 ①：排版渲染（Layout & Rendering）
 
-**目标**：在纯文字基础上，自动标记和生成配图位——示意图、截图位、信息卡片——使文章「图文并茂」，而不是一面文字墙。
+**目标**：深度理解文章 → 推荐排版系统 → 预览对比 → 用户选择 → 渲染 HTML。
 
-这是本 Skill 区别于普通排版工具的**关键差异化能力**。
+### ①.1 深度理解 → 推荐
 
-### 3.1 配图触发点检测
+1. 阅读优化后的文章，理解内容类型、情感基调、目标读者
+2. 调用 `recommend()` 做关键词匹配分析，得出 6 套系统的分数排名
+3. 结合内容理解和关键词分数，向用户说明推荐理由
 
-扫描经过阶段 ①② 处理后的结构化内容，自动识别以下**配图触发点**，并按需插入对应元素：
+### ①.2 生成预览网页
 
-| 触发场景 | 插入元素 | 标记语法 | 渲染效果 |
-|----------|----------|----------|----------|
-| **关键概念定义** | 概念卡片 | `> 💡 概念：xxx` | `.highlight-box` 渲染 |
-| **步骤流程** | 流程卡片 | `1. 步骤一\n2. 步骤二` | `.card-list` 渲染（每步一张卡片） |
-| **数据/对比** | 表格或对比卡 | Markdown 表格 | 响应式表格样式 |
-| **截图演示** | 截图占位 | `> 📸 截图位：描述所需截图内容` | 虚线边框占位区 + 截图说明文字 |
-| **架构/关系图** | 示意图占位 | `> 📊 示意图：描述图表内容` | 虚线边框占位区 + 图表说明文字 |
-| **重点结论** | 金句模块 | `> ✨ 金句：xxx` | `.highlight-box` + 加大字号渲染 |
-| **工具/资源推荐** | 资源卡片 | `- [ ] 资源名：说明` | `.card-list` 渲染 |
+```bash
+python3 scripts/preview_themes.py output/article-class-html.html --open
+```
 
-### 3.2 截图占位符自动生成
+自动提取文章代表性片段，用全部 6 套排版系统渲染，生成对比页并在浏览器打开。
 
-对于视频脚本来源的内容，**自动推断**哪些位置需要截取视频画面并生成占位说明：
+每张卡片标注：📐 布局名 + 🎨 配色名 + 实际渲染效果。推荐项 ⭐ 高亮。
 
-1. **界面操作步骤**：每个"点击/打开/选择/输入"类描述 → 标记 `> 📸 截图位：XX 界面操作截图`
-2. **效果对比**：「之前 vs 之后」「优化前 vs 优化后」→ 标记 `> 📸 截图位：前后对比拼接图`
-3. **工具界面**：首次提到某个工具名 → 标记 `> 📸 截图位：XX 工具主界面`
-4. **数据结果**：任何涉及数字指标的结论 → 标记 `> 📸 截图位：结果数据面板`
+### ①.3 用户选择
 
-### 3.3 信息卡片自动生成
+**🔴 必须暂停等待**。用户可回复：
 
-以下类型的内容**强制使用信息卡片**渲染（不经过用户确认）：
+- 预设名：`teal` `navy` `forest` `plum` `slate` `amber`
+- 自由组合：`classic:teal-gold` `workshop:navy-coral`
+- 自定义颜色：`#e63946`
+- 「用推荐的」→ 分数最高项
 
-- **工具推荐列表**：每款工具 → 1 张 `.card-item`
-- **步骤指南**：每个步骤 → 1 张 `.card-item`
-- **核心观点清单**：每条观点 → 1 张 `.card-item`
-- **注意事项/避坑清单**：每条 → 1 张 `.card-item`
+### ①.4 渲染
 
-卡片内部结构：`<strong>标题</strong>` + 1-2 句说明文字。
+```bash
+python3 scripts/build_inline.py output/article-class-html.html output/article-inline.html --theme <选定>
+```
 
-### 3.4 视觉节奏控制
+### ①.5 HTML 生成流程
 
-- 纯文字段落连续不超过 **3 段**，之间必须有视觉元素（图片/卡片/分隔线/引用块）
-- 全文至少包含 **2 个**配图位（截图或示意图）
-- 每个 H2 板块内至少有 **1 个**视觉断点
+**Step 1**：根据选定的排版系统，用其专属组件库编写 class-based HTML
+**Step 2**：运行 `build_inline.py --theme` 转换为 inline style HTML
+**Step 3**：验证（零 style/div/class/linear-gradient/letter-spacing）
+
+### ①.6 排版质量检查
+
+- [ ] 全文无 `<style>`、`class=`、`<div>`、`linear-gradient`、`letter-spacing`
+- [ ] 正文行高 ≥ 1.8，字号 ≥ 15px
+- [ ] H2 视觉层级正确，关键观点用金句/强调模块包裹
+- [ ] CTA 后有底部留白（≥32px）
+- [ ] 颜色来自配色色板，全文主色一致
+- [ ] 头图位和配图位已标记（由 upload.py 阶段③自动注入）
 
 ---
 
-## 阶段 ④：排版渲染（Typography & Rendering）
+## 微信排版技术规范（Typography & Rendering Reference）
 
-**目标**：将结构化内容注入品牌 CSS 模板，输出可直接用于公众号的完整 HTML。
+**目标**：无论选择哪套排版系统，最终输出都遵循以下技术规范。
 
 ### 4.1 🔴 微信 CSS 核心规则：禁止 `<style>` + 禁止 `<div>`
 
@@ -242,8 +228,9 @@ version: 1.1.0
 - ❌ 禁止 `flex` 和 `grid` 布局（微信会剥离）
 - ❌ 禁止 `linear-gradient`（微信会删除，改用纯色 `background-color`）
 - ❌ 禁止 `<iframe>`、`<form>`、`<input>`
+- ⚠️ **`<blockquote>` 有隐性 300 字限制**：微信编辑器对单次引用内容超过 300 字会自动插入「引用字数:XX/300」警告。超过 300 字的引用内容（如 Prompt 全文、长文摘录等）必须改用 `<section>` + `border-left` 样式替代
 - ✅ **所有样式写在每个元素的 `style=""` 属性中**
-- ✅ **用语义元素替代 div**：`<section>` 做容器、`<blockquote>` 做强调块、`<table>` 做数据对比、`<p>` 做卡片
+- ✅ **用语义元素替代 div**：`<section>` 做容器、`<blockquote>` 做强调块（≤300字）、`<section>` + 左边框做超长引用（>300字）、`<table>` 做数据对比、`<p>` 做卡片
 - ✅ 布局基于 `block`/`inline-block`/`table` + `margin`/`padding`
 - ✅ 背景色使用纯色（`background-color`），禁用渐变
 - ✅ 图片 src 必须是微信 CDN URL（`mmbiz.qpic.cn` 域名）
@@ -263,85 +250,120 @@ version: 1.1.0
 | 数据双栏 | `<table>` + `<td style="width:50%">` | |
 | CTA 底部 | `<blockquote style="...">`（不设左边框） | `<blockquote style="margin-top:44px;background-color:#d4edf5;border-radius:14px;">` |
 | 编辑注记 | `<p style="...">`（左侧灰色细线） | `<p style="border-left:2px solid #dce3ea;color:#8a9aaa;font-style:italic;">` |
+| 超长引用（>300字） | `<section style="...">`（左边框 + 略小字号，视觉等效 blockquote 但不触发微信 300 字限制） | `<section style="border-left:3px solid #0d7377;margin:16px 0;padding:4px 0 4px 18px;"><p style="font-size:14px;color:#4a5a6a;">...</p></section>` |
 
-### 4.3 品牌 Inline Style 映射表
+### 4.3 6 套异构排版系统（v1.6.0）
 
-每个 HTML 元素直接注入内联样式。以下为完整的元素→样式映射：
+每套排版系统拥有**独立的组件库、HTML 结构和视觉语言**，不是同一骨架换 CSS。
 
-```python
-# 核心元素 inline style 定义
-WEIXIN_STYLES = {
-    # 容器
-    "#article-wrapper": "max-width:677px;margin:0 auto;padding:32px 20px 48px;background-color:#ffffff;",
-    "body": "background-color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Helvetica Neue',sans-serif;color:#3f3f3f;-webkit-font-smoothing:antialiased;margin:0;padding:0;",
-    
-    # 顶部元信息
-    ".article-meta": "margin-bottom:28px;padding-bottom:24px;border-bottom:1px solid #e8ecf1;text-align:center;",
-    ".meta-tag": "display:inline-block;padding:4px 14px;font-size:12px;font-weight:600;color:#0d7377;background-color:#e8f4f8;border-radius:20px;margin-bottom:14px;",
-    ".meta-desc": "font-size:14px;color:#8a9aaa;line-height:1.8;",
-    
-    # 开篇大数字冲击
-    ".hero-block": "margin:0 0 36px;text-align:center;",
-    ".hero-number": "font-size:56px;font-weight:900;color:#0d7377;line-height:1;margin-bottom:4px;",
-    ".hero-label": "font-size:13px;color:#8a9aaa;",
-    
-    # H2：品牌特征块标题（纯色背景代替渐变）
-    "h2": "margin:44px 0 22px;padding:14px 18px;font-size:19px;font-weight:700;line-height:1.5;color:#1a1a1a;background-color:#e8f4f8;border-left:4px solid #0d7377;border-radius:0 6px 6px 0;",
-    
-    # H3：加粗 + 底部细线
-    "h3": "margin:34px 0 16px;padding:0 0 12px;font-size:17px;font-weight:700;color:#2c3e50;border-bottom:2px solid #e0e7ef;line-height:1.5;",
-    
-    # 正文段落
-    "p": "margin:0 0 16px;font-size:15px;line-height:1.9;color:#3f3f3f;text-align:justify;",
-    
-    # 强调
-    "strong,b": "color:#212121;font-weight:700;",
-    
-    # 分隔线
-    "hr": "margin:36px 0;border:none;height:1px;background-color:#dce3ea;",
-    
-    # 引用块
-    "blockquote": "margin:20px 0;padding:18px 20px 18px 22px;background-color:#f7fafc;border-left:3px solid #0d7377;border-radius:0 8px 8px 0;color:#4a5a6a;font-size:14px;line-height:1.8;",
-    # blockquote 内 p 标签特殊处理（覆盖默认 p 样式）
-    "blockquote p": "margin:0 0 8px;font-size:14px;line-height:1.8;color:#4a5a6a;text-align:justify;",
-    
-    # 行内代码
-    "code": "padding:2px 6px;font-family:'SF Mono','Menlo','Monaco','Courier New',monospace;font-size:13px;color:#c7254e;background-color:#f9f2f4;border-radius:3px;",
-    
-    # 代码块
-    "pre": "margin:18px 0;padding:18px 20px;background-color:#282c34;color:#abb2bf;border-radius:8px;overflow-x:auto;font-size:13px;line-height:1.8;",
-    "pre code": "font-size:13px;line-height:1.8;",  # 继承 pre，不设背景
-    
-    # 卡片列表
-    ".card-list": "margin:16px 0 24px;padding:0;",
-    ".card-item": "margin-bottom:10px;padding:15px 18px;background-color:#fafbfc;border:1px solid #e8ecf1;border-radius:8px;font-size:14px;line-height:1.8;color:#3f3f3f;",
-    
-    # 重点强调模块
-    ".highlight-box": "margin:24px 0;padding:20px 22px;background-color:#f7fafc;border-radius:10px;border:1px solid #e0e7ef;font-size:15px;line-height:1.9;color:#2c3e50;",
-    ".highlight-box strong": "color:#0d7377;font-weight:700;",
-    
-    # 金句模块（纯色背景代替渐变）
-    ".golden-quote": "margin:30px 0;padding:26px 28px;background-color:#d4edf5;border-radius:12px;text-align:center;font-size:17px;font-weight:700;line-height:1.9;color:#0d7377;",
-    
-    # 数据对比双栏（inline-block 布局，微信安全）
-    ".data-row": "width:100%;margin:20px 0;",
-    ".data-col": "display:inline-block;width:47%;vertical-align:top;text-align:center;padding:18px 12px;background-color:#fafcfd;border:1px solid #e8ecf1;border-radius:10px;margin-right:3%;",
-    ".data-num": "font-size:28px;font-weight:900;color:#0d7377;line-height:1.2;",
-    ".data-label": "font-size:12px;color:#8a9aaa;margin-top:6px;",
-    
-    # 编辑注记
-    ".editor-note": "margin:14px 0;padding:8px 14px;font-size:13px;color:#8a9aaa;font-style:italic;border-left:2px solid #dce3ea;",
-    
-    # 表格
-    "table": "width:100%;margin:20px 0;border-collapse:collapse;font-size:13px;line-height:1.7;",
-    "th": "padding:12px 14px;background-color:#e8f4f8;color:#1a1a1a;font-weight:700;text-align:left;border:1px solid #dce3ea;",
-    "td": "padding:12px 14px;border:1px solid #e8ecf1;color:#3f3f3f;",
-    
-    # 结尾 CTA（纯色背景代替渐变）
-    ".cta-footer": "margin-top:44px;padding:28px 24px;background-color:#d4edf5;border-radius:14px;text-align:center;",
-    ".cta-title": "font-size:17px;font-weight:700;color:#0d7377;margin-bottom:8px;",
-}
+#### 排版系统一览
+
+| 系统 | 设计理念 | H2 特征 | 独有组件 | 参考 |
+|------|---------|---------|---------|------|
+| `classic` 经典左线 | 左粗线分区，结构清晰 | 左蓝条+浅底 | `.golden-quote` `.card-item` `.highlight-box` | 咨询报告 |
+| `cardflow` 卡片流 | 每段独立成卡，模块化 | 深色顶栏（卡片标题） | `.section-card` `.info-card` `.data-badge` | Notion |
+| `editorial` 杂志流 | 大标题+引题+戏剧化引用 | 居中+上下装饰线 | `.lead` `.ornament-divider` `.image-frame` | The Atlantic |
+| `guide` 手册流 | 步骤编号+提示框+对比 | 最大号无装饰 | `.step-num` `.tip-box` `.warn-box` `.checklist-item` `.before-after` | 操作指南 |
+| `letter` 书信流 | 日期+问候+署名，极简 | 只比正文略大 | `.dateline` `.greeting` `.sign-off` `.signature` `.postscript` | Substack |
+| `workshop` 极客流 | 深色实验台+Prompt卡+工具徽章 | 深底白字，等宽感 | `.prompt-card` `.tool-badge` `.workflow-step` `.wf-step-num` | 开发者笔记 |
+
+#### 关键区别
+
+同一篇文章用不同排版系统，**golden-quote（金句）** 的渲染完全不同：
+- `classic`：圆角蓝底居中卡片
+- `cardflow`：卡片底部横幅
+- `editorial`：上下装饰线+大号居中
+- `guide`：深色满底反白块
+- `letter`：无底无边框，纯文字加大加粗
+- `workshop`：深色实验台+对比色文字
+
+#### 5 套多对比色配色方案（决定颜色组合）
+
+| 配色名 | 主色 | 对比色 | 气质 |
+|--------|------|--------|------|
+| `teal-gold` | `#0d7377` 青蓝 | `#c8940a` 暖金 | 理性中带温度 |
+| `navy-coral` | `#2c3e6b` 深蓝 | `#d4685c` 珊瑚 | 专业不过分严肃 |
+| `forest-amber` | `#2d6a4f` 深绿 | `#d4923a` 琥珀 | 自然沉稳有生机 |
+| `plum-sage` | `#7c3a8c` 梅紫 | `#6b8b7a` 灰绿 | 文艺不张扬 |
+| `slate-rose` | `#4a5568` 岩灰 | `#c57080` 玫瑰 | 克制中带柔软 |
+
+每个配色包含 16 个色值 token（primary/contrast/bg_light/bg_warm/bg_dark/text_on_dark/text_dark/text_body/text_muted/border/border_light/card_bg/code_bg/code_color/white/body_bg），确保全文色彩协调。
+
+#### 6 套预设主题组合
+
+| 预设名 | 布局 | 配色 | 适用内容 |
+|--------|------|------|---------|
+| `teal` | classic 经典左线 | teal-gold 青蓝金 | 通用深度分析 |
+| `navy` | editorial 杂志流 | navy-coral 深蓝珊瑚 | 商业/行业评论 |
+| `forest` | guide 手册流 | forest-amber 森语琥珀 | 教程/操作指南 |
+| `plum` | cardflow 卡片流 | plum-sage 梅紫灰绿 | 产品/工具介绍 |
+| `slate` | letter 书信流 | slate-rose 岩灰玫瑰 | 个人随笔/故事 |
+| `amber` | workshop 极客流 | forest-amber 森语琥珀 | 技术/AI/编程 |
+
+#### 使用方式
+
+```bash
+# 预设组合
+python3 scripts/build_inline.py in.html out.html --theme navy
+
+# 显式指定布局和配色
+python3 scripts/build_inline.py in.html out.html --layout workshop --palette teal-gold
+
+# 自定义主色（默认 classic 布局，自动推导配色）
+python3 scripts/build_inline.py in.html out.html --theme "#e63946"
 ```
+
+---
+
+### 4.3.5 主题推荐与可视化预览（v1.3.0）🔴 强制交互节点
+
+在运行 `build_inline.py` 之前，**必须**执行以下交互流程：
+
+#### 步骤 A：内容分析 → 自动推荐
+
+调用 `recommend_theme()` 分析文章文本，按关键词匹配度评分。每个主题内置一组关键词：
+
+| 主题 | 匹配关键词 | 适合内容类型 |
+|------|-----------|-------------|
+| `navy` 靛蓝 | 商业、行业、市场、数据、报告、战略、投资、利润、竞争 | 商业分析、行业评论 |
+| `forest` 深绿 | 教程、步骤、操作、配置、代码、实战、指南、工具、方法 | 技术教程、操作指南 |
+| `amber` 暖金 | 我、经历、感受、故事、碎碎念、随笔、生活、日常 | 个人随笔、经验分享 |
+| `teal` 青蓝 | 分析、深度、观点、评论、趋势、解读、思考、本质 | 深度分析、通用评论 |
+| `plum` 梅紫 | 创意、设计、艺术、文艺、审美、灵感、创作、风格 | 创意输出、文艺评论 |
+
+#### 步骤 B：生成可视化预览网页
+
+```bash
+python3 scripts/preview_themes.py output/article-class-html.html --open
+```
+
+该脚本自动：
+1. 从 class HTML 中提取代表性片段（开篇 + 首个 H2 板块）
+2. 用全部 6 套排版系统渲染同一段内容
+3. 生成深色主题对比页 `output/theme-preview.html`
+4. 自动在浏览器中打开
+
+预览页包含：
+- 📊 **评分图例**：显示每个主题的匹配分数（降序）
+- 🎨 **5 列并排卡片**：每个主题在实际文章片段上的渲染效果
+- ⭐ **推荐标记**：得分最高的 2 个主题高亮显示（金色边框 + 推荐徽章）
+- 💡 **操作提示**：底部提示用户如何选择
+
+#### 步骤 C：用户选择
+
+预览页打开后，**必须暂停等待用户选择**。用户可回复：
+- 主题名：`navy`、`amber`、`forest`、`teal`、`plum`
+- 自定义颜色：`#e63946`
+- 默认确认：「就用推荐的」→ 使用得分最高的主题
+
+#### 步骤 D：进入 build_inline.py
+
+用户确认后，将选定主题传入：
+```bash
+python3 scripts/build_inline.py output/article-class-html.html output/article-inline.html --theme <选定主题>
+```
+
+---
 
 ### 4.4 嵌套上下文特殊处理
 
@@ -357,27 +379,43 @@ WEIXIN_STYLES = {
 
 ### 4.5 HTML 生成流程
 
+**Step 0**：主题推荐与预览（v1.3.0 🔴 强制交互）
+- 用 `recommend_theme()` 分析文章内容 → 自动推荐最匹配的主题
+- 运行 `preview_themes.py --open` → 在浏览器中并排展示 5 套主题的实际渲染效果
+- **暂停等待用户选择**（主题名 / 自定义颜色 / 「用推荐的」）
+- 将选定 `--theme <name|#RRGGBB>` 传给 `build_inline.py`
+
 **Step 1**：生成 class-based HTML（便于结构可读性）
 ```html
 <blockquote class="golden-quote"><p>万物皆可蒸馏</p></blockquote>
 ```
-⚠️ 必须使用语义元素（`<p>`, `<blockquote>`, `<h2>`, `<h3>`, `<pre>`, `<code>`, `<hr>`, `<strong>`），严禁 `<div>`。
+⚠️ 必须使用语义元素（`<p>`, `<blockquote>`, `<h2>`, `<h3>`, `<section>`, `<code>`, `<hr>`, `<strong>`），严禁 `<div>`。**🔴 禁止 `<pre>` 标签**（微信不支持，换行全部丢失，参见铁律 7）。格式化文本用 `<section>` + `white-space:pre-wrap` + `<br>` 替代。
 
 ⚠️ `<code>` 内如需展示 HTML 标签（如 `<style>`），必须写 `&lt;style&gt;`，不要写裸 `<style>`。
 
-**Step 2**：用 Python `html.parser` 将 class 映射转换为 inline style
+⚠️ **头图（v1.3.0）**：class-based HTML 中**不要写头图 `<img>`**。头图由 `upload.py` 自动上传 `img/header_image.png` 并在阶段⑤注入正文顶部。
+
+**Step 2**：用 `build_inline.py` 将 class 映射转换为 inline style
+```bash
+python3 scripts/build_inline.py output/article-class-html.html output/article-inline.html --theme teal
+```
 ```python
 # 🔴 关键：必须设置 convert_charrefs=False
 # 否则 HTMLParser 会把 &lt; &gt; 转成 < >，导致 <code> 内的标签被当作真标签吃掉内容
 parser = HTMLParser(convert_charrefs=False)
-
-# 移除所有 class 属性，注入对应的 style 属性
+# 移除所有 class 属性，注入对应的 style 属性（颜色来自主题色板）
 ```
 
 **Step 3**：后处理嵌套上下文冲突（blockquote p、pre code、golden-quote p、cta-footer p 等）
 ⚠️ 嵌套覆盖必须追踪父级 class 名，不能只追踪 tag 名。例如 `golden-quote` 下的 `<p>` 和普通 `blockquote` 下的 `<p>` 需要不同的覆盖样式。
 
 **Step 4**：输出纯 body 片段 HTML（仅 inner content，不含 `<html>`, `<head>`, `<body>` 标签），所有样式通过 `style=""` 内联，全文无 `<style>` 标签、无 `class` 属性、无 `<div>` 元素。
+
+**Step 5**（v1.3.0）：运行 `upload.py` 完成头图注入 + 底部留白 + 封面上传 + 草稿创建
+```bash
+python3 scripts/upload.py --token TOKEN --html output/article-inline.html --title "标题" --author "嗯哌" --digest "摘要"
+```
+upload.py 自动执行：上传 `img/header_image.png` → 注入 `<img>` 到正文顶部 → 底部注入留白 `<p>` → 上传 `img/cover.png` 做封面 → 创建草稿
 
 ### 4.6 排版质量检查清单
 
@@ -391,13 +429,16 @@ parser = HTMLParser(convert_charrefs=False)
 - [ ] H2 ≤ 19px，视觉层级正确（H2 > H3 > 正文 > 辅助文字）
 - [ ] 关键观点使用金句模块或强调模块包裹
 - [ ] 文章底部有 CTA 模块
+- [ ] CTA 之后有底部留白（≥32px 空行，便于追加底部信息）
 - [ ] blockquote / golden-quote / cta-footer 内子元素样式已做嵌套覆盖
+- [ ] class-based HTML 中不含头图 `<img>`（由 upload.py 阶段⑤自动注入）
+- [ ] 颜色来自主题色板，全文主色一致（v1.3.0）
 
 ---
 
-## 阶段 ⑤：一键上传（One-Click Upload）
+## 阶段 ②：一键发布（Publish）
 
-**目标**：将排版完成的 HTML 推送到公众号草稿箱，用户打开后台即可预览和群发。
+**目标**：排版完成 → 推送到公众号草稿箱，用户打开后台即可预览和群发。
 
 ### 5.1 凭据获取
 
@@ -421,16 +462,19 @@ GET https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=A
 
 **`thumb_media_id` 为必填字段**。封面图获取 / 生成优先级：
 
-1. 用户显式指定的图片路径/URL → 上传到微信素材库
-2. 文章内第一张 `<img>` 的 src（需已是 `mmbiz.qpic.cn` URL）
-3. **自动生成封面图**：用 Python 内置库生成品牌色（#0d7377）纯色 PNG，1080×1080px → 上传
-4. 以上均失败 → 报告错误，不上传空封面
+1. **`img/cover.png`**（v1.3.0 默认）：skill 根目录下预置封面图，直接上传到微信素材库
+2. 用户显式指定的图片路径/URL → 上传到微信素材库
+3. 文章内第一张 `<img>` 的 src（需已是 `mmbiz.qpic.cn` URL）
+4. **自动生成封面图**（fallback）：用 Python 内置库生成品牌色纯色 PNG，1080×1080px → 上传
+5. 以上均失败 → 报告错误，不上传空封面
 
 本地上传封面：
 ```
 POST https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=ACCESS_TOKEN&type=image
 ```
 成功返回 `media_id` 和微信 CDN URL（`mmbiz.qpic.cn`）。将 URL 回填到正文 `<img>` 标签中。
+
+**头图自动注入**（v1.3.0）：`upload.py` 会自动上传 `img/header_image.png` 到微信素材库，获取 CDN URL，并注入到正文 HTML 最顶部。class-based HTML 中**不需要**手写头图 `<img>`。
 
 **封面自动生成代码模板**：
 ```python
@@ -462,31 +506,26 @@ def create_cover_png(w=1080, h=1080):
 
 ### 5.4 创建草稿
 
-**步骤 1**：用 Python 构建 JSON payload（避免 curl 直接拼接长 HTML 的转义问题）：
+使用 `upload.py` 一键完成：头图上传注入 → 底部留白 → 封面上传 → 创建草稿。
 
-```python
-import json
-
-with open("排版输出.html", "r", encoding="utf-8") as f:
-    html_content = f.read()
-
-payload = {
-    "articles": [{
-        "title": "文章标题（≤64字）",
-        "author": "嗯哌",
-        "digest": "摘要（≤120字）",
-        "content": html_content,
-        "thumb_media_id": "封面 media_id",
-        "need_open_comment": 1,
-        "only_fans_can_comment": 0
-    }]
-}
-
-with open("wechat_payload.json", "w", encoding="utf-8") as f:
-    json.dump(payload, f, ensure_ascii=False)
+```bash
+python3 scripts/upload.py \
+  --token ACCESS_TOKEN \
+  --html output/article-inline.html \
+  --title "文章标题（≤64字）" \
+  --author "嗯哌" \
+  --digest "摘要（≤120字）"
 ```
 
-**步骤 2**：用 Python `requests` 发送（🔴 严禁使用 `json=` 参数，必须手动序列化）：
+`upload.py` 内部流程：
+
+**步骤 1**：上传 `img/header_image.png` → 获取微信 CDN URL → 注入 `<img>` 到正文顶部（`<section>` 之后）
+
+**步骤 2**：注入底部留白 `<p style="margin:0;padding:0;height:32px;"><br></p>` 到 `</section>` 之前
+
+**步骤 3**：上传 `img/cover.png` → 获取 `thumb_media_id`（若不存在则自动生成品牌色封面 fallback）
+
+**步骤 4**：构建 payload → 🔴 铁律1 序列化 → 创建草稿
 
 ```python
 # 🔴 关键：必须 ensure_ascii=False，否则中文变 \uXXXX → 微信编辑器显示乱码
@@ -502,10 +541,8 @@ resp = requests.post(
 
 关键约束：
 - `title` ≤ 64 字，超长自动截断末尾加 `…`
-- `content` 中的 HTML 必须通过 `json.dump` 自动转义（不要手动拼接 JSON 字符串）
-- `thumb_media_id` 为**必填项**——即使没有封面图，也必须自动生成并上传
-
-**步骤 3**：上传成功后，清理临时文件（wechat_payload.json、cover.png）。
+- `content` 中的 HTML 已由 `upload.py` 自动注入头图和底部留白
+- `thumb_media_id` 为**必填项**——`upload.py` 自动从 `img/cover.png` 获取
 
 ### 5.5 错误处理
 
@@ -524,73 +561,68 @@ resp = requests.post(
 ```
 保存 `media_id`，提示用户：**打开公众号后台 → 草稿箱 → 预览确认排版效果 → 群发**。
 
-上传完成后，清理本地临时文件（JSON payload、自动生成的封面图），只保留 HTML 排版文件和原始 Markdown。
+上传完成后，`upload.py` 自动清理临时文件，只保留 HTML 排版文件和原始 Markdown。
 
 ---
 
 ## 完整链路示例
 
-### 示例 1：默认行为——视频脚本 → 深度优化 + 排版 + 发布
+### 示例 1：默认完整流程——优化 + 排版 + 发布
 
 ```
-用户：这是我这期视频的脚本，帮我转成公众号推文
-（附带 video-script.md）
+用户：帮我把这篇文章优化后发公众号
+（附带 draft.md）
 
-→ 检查豁免关键词：未命中 → 执行完整五阶段
-→ 阶段① 内容脱水：剥离镜头语言，提取论述主线，去除口语填充
-→ 阶段② 结构重组：钩子开头 + 问题→原理→步骤骨架 + CTA 结尾
-→ 阶段③ 视觉增强：
-    - 检测到 3 个操作步骤 → 卡片化
-    - 检测到工具界面引用 → 标记截图位
-    - 检测到核心结论 → 金句模块
-→ 阶段④ 排版渲染：注入品牌 CSS 模板，生成 HTML
-→ 阶段⑤ 上传草稿箱：获取凭据 → 生成封面 → 上传素材 → 创建草稿
-→ 返回草稿 media_id ✅
+→ 阶段⓪：内容脱水 + 结构重组 + 去AI味
+→ 🔴 输出优化稿 → 用户确认「可以」
+→ 阶段①：analyze_content() → 推荐最佳排版系统
+         preview_themes.py --open → 浏览器 6 套对比
+         🔴 用户选择
+         build_inline.py --theme <选定> → inline HTML
+→ 阶段②：upload.py → 上传头图+封面 → 创建草稿
+→ ✅ media_id 返回
 ```
 
-### 示例 2：豁免优化——仅排版，不改内容
+### 示例 2：豁免优化 + 指定排版
 
 ```
-用户：这篇按原文排版发公众号，一字不改
-（附带 finished-article.md）
+用户：这篇按原文，用卡片流排版发公众号，一字不改
 
-→ 检查豁免关键词：命中「一字不改」→ 跳过 ①②
-→ 阶段③ 视觉增强：检测配图触发点，自动卡片化
-→ 阶段④ 排版渲染：注入品牌 CSS 模板，生成 HTML
-→ 阶段⑤ 上传草稿箱
-→ 返回草稿 media_id ✅
+→ 豁免「一字不改」→ 跳过阶段⓪
+→ 阶段①：用户指定「卡片流」→ build_inline.py --theme plum
+→ 阶段②：upload.py → ✅
 ```
 
-### 示例 3：仅排版预览，不上传
+### 示例 3：自定义颜色
 
 ```
-用户：先排版看看效果，不上传
+用户：主色用 #e63946，发公众号
 
-→ 检查豁免关键词：未命中 → 执行阶段 ①② 优化
-→ 执行阶段 ③④ 排版渲染
-→ 输出完整 HTML 文件（配图占位符保留，提醒用户截图后替换）
-→ 提示用户可本地浏览器预览
-→ 阶段⑤ 跳过
-```
-
-### 示例 4：纯排版预览 + 不修改内容
-
-```
-用户：仅排版预览，不要修改我写的内容
-
-→ 检查豁免关键词：命中「不要修改」→ 跳过 ①②
-→ 阶段③ 视觉增强 → 阶段④ 排版渲染
-→ 输出 HTML，不上传
+→ 阶段⓪① 正常执行
+→ 阶段①：build_inline.py --theme "#e63946" → 默认 classic 布局 + 自动推导配色
+→ 阶段②：upload.py → ✅
 ```
 
 ---
 
 ## 与其它 Skill 的协作
 
-- **oral-stylizer**：阶段①的前置处理器。当输入为口述碎碎念时，先调 oral-stylizer 拿到结构化稿，再进入本 skill 的阶段②。
-- **humanizer-zh**：阶段④之后、阶段⑤之前的可选终审。长文（3000+ 字）建议先 humanizer-zh 去 AI 味。
+- **oral-stylizer**：阶段⓪ 的前置处理器。口述碎碎念先调 oral-stylizer 结构化，再进入本 skill。
+- **humanizer-zh**：阶段⓪.3 去 AI 味的执行引擎，直接调用审阅全文。
 
-协作管线：`oral-stylizer → wechat-automator（五阶段）→ humanizer-zh → 上传`
+协作管线：`oral-stylizer → wechat-automator（⓪优化 → ①排版 → ②发布）`
+
+### 配图扩展（预留口子）
+
+本 skill 不内置配图生成。但 HTML 结构支持配图占位：
+
+```html
+<p class="illustration"><img src="PLACEHOLDER" alt="配图说明"></p>
+```
+
+配图准备完成后，替换 `PLACEHOLDER` 为微信 CDN URL 即可。`.illustration` 样式（居中、圆角、全宽）已在所有排版系统中内置。
+
+未来可通过安装 `npie-illustrations` skill 实现自动配图流程（出 shot list → 生成 → 插入），两 skill 接口已预留对齐。
 
 ---
 
@@ -666,6 +698,28 @@ tag_stack = [("blockquote", "golden-quote")]
 # 再查 (tag, tag)   → (blockquote, p)    → 兜底样式
 ```
 
+### 铁律 6：超长引用（>300 字）禁用 `<blockquote>`，改用 `<section>` + 左边框
+
+```html
+<!-- ❌ 错误：Prompt 全文等超长内容（>300字）包在 <blockquote> 中
+     微信编辑器自动插入警告：「引用字数:1119/300(单次引用不得超过300字)」 -->
+<blockquote>
+  <p>你现在是我的Obsidian知识库资深架构师和重构专家...</p>
+  <p>审查重点（必须覆盖）...</p>
+  <!-- ...1100+ 字内容 -->
+</blockquote>
+
+<!-- ✅ 正确：用 <section> + border-left 替代，视觉等效但无字数警告 -->
+<section style="border-left:3px solid #0d7377;margin:16px 0;padding:4px 0 4px 18px;">
+  <p style="font-size:14px;color:#4a5a6a;">你现在是我的Obsidian知识库资深架构师和重构专家...</p>
+  <p style="font-size:14px;color:#4a5a6a;">审查重点（必须覆盖）...</p>
+</section>
+```
+
+**根因**：微信编辑器对 `<blockquote>` 元素有隐性 300 字上限检测。超过 300 字的单次引用会被自动插入警告文字，破坏排版。`<section>` 不受此限制，配合 `border-left` 样式可实现相同的视觉效果。
+
+**适用范围**：Prompt 全文、长文摘录、多段落引用等任何可能超过 300 字的引用内容。短引用（≤300 字）仍可正常使用 `<blockquote>`。
+
 ### 铁律 5：上传前必须验证，验证必须排除 `<code>` 和 `<pre>`
 
 ```python
@@ -677,6 +731,49 @@ clean = re.sub(r'<code[^>]*>.*?</code>', '', html, flags=re.DOTALL)
 clean = re.sub(r'<pre[^>]*>.*?</pre>', '', clean, flags=re.DOTALL)
 # 然后在 clean 上做 <style>, <div>, class= 检查
 ```
+
+### 铁律 7：微信不支持 `<pre>` 标签——所有换行全部丢失，内容变成一行（2026-06-26 实战血证）
+
+```html
+<!-- ❌ 致命错误：<pre> 在微信编辑器中被吃掉所有换行符
+     CLAUDE.md 的 151 行内容变成一行，目录树结构完全塌缩 -->
+<pre style="...">
+# My‑Viki 系统规则
+## 1. 角色与总目标
+- 你是 **My‑Viki 的知识架构师和维护者**。
+...
+</pre>
+<!-- 结果：微信草稿箱里变成一行乱码 -->
+```
+
+**根因**：微信编辑器不支持 `<pre>` 标签。`<pre>` 内的换行符（`\n`）被全部忽略，所有内容挤压成一行。同时 `<pre>` 的背景色和等宽字体样式也可能被剥离。
+
+**✅ 唯一正确的替代方案：`<section>` + `white-space:pre-wrap` + 显式 `<br>` 换行**
+
+```python
+import html as html_mod
+
+def text_to_wechat_block(content, style_extras=""):
+    """
+    将多行文本转为微信兼容的格式化区块。
+    三步：① HTML 转义 → ② \n → <br> → ③ 包入 <section>
+    """
+    escaped = html_mod.escape(content)       # 转义 < > & "
+    with_br = escaped.replace('\n', '<br>')  # 换行 → 显式 <br>
+    return f'<section style="white-space:pre-wrap;font-family:monospace;{style_extras}">{with_br}</section>'
+```
+
+**关键样式说明**：
+| 样式属性 | 作用 | 必要性 |
+|----------|------|--------|
+| `white-space:pre-wrap` | 保留空格缩进，配合 `<br>` 换行 | 🔴 必须 |
+| `font-family:monospace` | 等宽字体，替代 `<pre>` 的默认等宽效果 | 🟡 强烈建议 |
+| `max-height:520px;overflow-y:auto` | 长内容滚动（CLAUD.md/WIKI.md 等 150+ 行文件） | 🟡 按需 |
+| `-webkit-overflow-scrolling:touch` | iOS 平滑滚动 | 🟡 按需 |
+
+**适用范围**：目录树、代码块、配置文件全文、Markdown 原文展示——任何依赖换行和空格对齐的格式化文本，一律用此方案，**禁止使用 `<pre>`**。
+
+**禁止 `<pre>` 的唯一例外**：`build_inline.py` 的验证逻辑中，`<pre>` 仅在 `<code>` 展示 HTML 标签转义示例（如 `&lt;style&gt;`）时可用于 class-based 中间文件，但**最终输出到微信的 HTML 必须零 `<pre>`**。
 
 ---
 
