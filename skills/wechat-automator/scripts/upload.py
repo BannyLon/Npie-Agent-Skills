@@ -69,24 +69,29 @@ def generate_cover_png(w=1080, h=1080, color=(13, 115, 119)):
     return b'\x89PNG\r\n\x1a\n' + ihdr + idat + iend
 
 
+def strip_section_wrapper(html):
+    """去掉外层 <section ...> 和 </section>，让内容直接填充 WeChat 文章区宽度"""
+    html = html.strip()
+    # 去掉开头 <section ...>
+    m = re.match(r'<section\b[^>]*>', html)
+    if m:
+        html = html[m.end():]
+    # 去掉结尾 </section>
+    if html.rstrip().endswith('</section>'):
+        html = html.rstrip()[:-len('</section>')]
+    return html.strip()
+
+
 def inject_header_image(html, cdn_url):
-    """在 <section ...> 之后注入头图 <img>（inline style，微信安全）"""
+    """在内容最前面注入头图 <img>"""
     img_tag = f'<img style="display:block;width:100%;max-width:100%;margin:0 0 28px;border-radius:0;" src="{cdn_url}">'
-    # 在第一个 > 之后（section 开标签结束）插入
-    idx = html.find(">")
-    if idx == -1:
-        return img_tag + html
-    return html[:idx + 1] + img_tag + html[idx + 1:]
+    return img_tag + html
 
 
 def inject_footer_spacer(html):
-    """在 </section> 之前注入底部留白"""
-    spacer = '<p style="margin:0;padding:0;height:32px;"><br></p>'
-    closing = "</section>"
-    idx = html.rfind(closing)
-    if idx == -1:
-        return html + spacer
-    return html[:idx] + spacer + html[idx:]
+    """在内容最后面追加底部留白"""
+    spacer = '<p style="margin:0;padding:0;height:0;"><br></p>'
+    return html + spacer
 
 
 # ═══════════════════════════════════════════
@@ -101,7 +106,7 @@ def main():
     secret = None
     html_file = "output/article-inline.html"
     title = None
-    author = "嗯哌"
+    author = "Author"  # 默认，用户可通过 --author 参数覆盖
     digest = ""
 
     i = 0
@@ -138,6 +143,10 @@ def main():
     with open(html_path, "r", encoding="utf-8") as f:
         html = f.read()
     print(f"📄 读取 HTML: {len(html)} 字符")
+
+    # ── 步骤 0: 去掉 section wrapper，让内容填满 WeChat 宽度 ──
+    html = strip_section_wrapper(html)
+    print("🔓 已去除 section wrapper")
 
     # ── 步骤 1: 上传头图 → 注入 ──
     header_path = os.path.join(SKILL_ROOT, "img", "header_image.png")

@@ -6,8 +6,8 @@ __pycache__/
 # macOS
 .DS_Store
 
-# Obsidian
-.obsidian/
+# Output directory (user-generated content,文章草稿/渲染产物)
+output/
 
 # Session artifacts (generated HTML, temp files)
 *-formatted.html

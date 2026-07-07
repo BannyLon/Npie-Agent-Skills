@@ -1,7 +1,8 @@
 ---
 name: wechat-automator
 description: 一站式内容资产化引擎：默认对内容进行深度优化（契合公众号阅读场景），精排版渲染，一键上传草稿箱。当用户提到"推文"、"公众号"、"排版"、"发布"、"草稿"、或任何将内容转化为公众号图文的意图时，必须调用此技能。
-version: 1.6.0
+version: 2.0.0
+author: 嗯哌AI (NpieAI)
 ---
 
 # 微信公众号内容资产化引擎 (WeChat Automator)
@@ -77,15 +78,15 @@ version: 1.6.0
 
 ---
 
-## 工作流总览（v1.6.0）
+## 工作流总览（v2.0）
 
 ```
 三阶段管线：
-┌──────────┐    ┌──────────────┐    ┌──────────┐
-│ ⓪ 内容优化 │ → │ ① 排版渲染    │ → │ ② 一键发布 │
-│ 脱水+去AI │    │ 推荐+预览+选择 │    │ 草稿箱    │
-│ 🔴暂停确认 │    │ 🔴暂停确认     │    │ 自动完成  │
-└──────────┘    └──────────────┘    └──────────┘
+┌──────────┐    ┌──────────────────────────────────────┐    ┌──────────┐
+│ ⓪ 内容优化 │ → │ ① 排版渲染                                 │ → │ ② 一键发布 │
+│ 脱水+去AI │    │ 预处理→类型判定→推荐+预览→结构+渲染          │    │ 草稿箱    │
+│ 🔴暂停确认 │    │ 🔴暂停确认类型  🔴暂停选择排版             │    │ 自动完成  │
+└──────────┘    └──────────────────────────────────────┘    └──────────┘
 
 详细流程：
   输入内容
@@ -96,28 +97,84 @@ version: 1.6.0
     ↓
   🔴 暂停 → 输出优化后内容 → 等待用户确认
     ↓
-  ①.1 深度理解文章内容 → 分析视觉结构
-  ①.2 内容匹配分析 → 推荐最佳排版系统
-  ①.3 生成预览网页 → 浏览器并排对比 6 套系统
+  ①.0 智能预处理（章节编号+英文标签+关键词识别+目录提取+引言高亮+署名+签名占位）
     ↓
-  🔴 暂停 → 用户选择排版系统（预设名/自定义组合/自定义颜色）
+  ①.1 🔴 文章类型判定 → 列出 7 种类型 → 暂停，等用户确认（可覆盖）
     ↓
-  ①.4 build_inline.py --theme <选定> → inline HTML
+  ①.2 🔴 排版推荐 + 12 套预览 → 暂停，等用户选择排版方案
+    ↓
+  ①.3 生成 class-based HTML（融入预处理 + 选定布局专属结构 + v2.0 组件配方）
+  ①.4 build_inline.py --theme <选定> → inline HTML + <span leaf=""> 包裹 + validate 校验
     ↓
   ② upload.py → 上传头图+封面 → 创建草稿
     ↓
   ✅ 草稿 media_id → 用户去后台预览群发
 ```
 
-### 确认门禁（两处强制暂停）
+### 确认门禁（三处强制暂停）
 
-1. **内容确认**：阶段⓪ 完成后，输出优化后的 Markdown，等用户确认
-2. **排版确认**：阶段① 预览网页打开后，等用户选定排版系统
+| # | 位置 | 等什么 | 用户可回复 |
+|---|------|--------|-----------|
+| 🔴 1 | 阶段⓪ 结束 | 确认优化后的内容 | 「确认」/ 修改意见 |
+| 🔴 2 | 阶段①.1 结束 | **确认文章类型**（AI 判定 + 列出全部 7 种供选） | 「确认」/ 类型名 / 序号 |
+| 🔴 3 | 阶段①.2 结束 | **选择排版方案**（12 套预览对比） | 预设名 / 自由组合 / 自定义色 / 「用推荐的」 |
+
+> ⚠️ **①.1 和 ①.2 不可合并。** 必须先确认类型，再基于类型推荐排版。跳过类型确认直接推荐 = 跳步。
 
 ### 豁免规则
 
 - 用户说「不要修改内容」「一字不改」「仅排版」→ 跳过 ⓪，直接进入 ①
 - 用户引用的文件是干净 HTML → 跳过 ⓪①，直达 ②
+
+---
+
+## 排版设计哲学（v1.8.0）
+
+> 本节是阶段① 所有排版决策的理论基础。
+
+### 三层视觉层级体系
+
+公众号文章是**扫描式阅读**——读者不会逐字读，而是用眼睛扫。好的排版为读者建立一条视觉动线：先看什么、再看什么、略过什么。
+
+| 层级 | 作用 | 频率 | 手段（按所选主题色自适应） |
+|------|------|------|------|
+| **锚点层** 🔴 | 最强锚点：产品名/步骤/CTA/核心金句，读者扫到的第一眼 | 全文 ≤ 5 处 | `.anchor-bold` 主色加粗、`.anchor-block` 深色底白字、`.golden-quote` 金句模块 |
+| **标记层** 🟡 | 正文关键词下划线，让读者快速抓取每段重点 | 每段 1-3 处，高频 | `.kw-underline` 主题色底划线（**默认标记手段**）、`.highlight-marker` 荧光笔（偶尔长句） |
+| **容器层** ⚪ | 引用块、概念标签、提示框、卡片——结构化信息块 | 按需，点缀 ≤3 种/篇 | `blockquote` 引用、`.highlight-box` 强调块、`.tip-box`/`.warn-box` 提示框、`.card-item` 卡片 |
+
+### 克制原则
+
+1. **锚点不滥用**：到处加粗等于没有重点。红/蓝/绿加粗只在全文 ≤5 处最关键的位置
+2. **标记不遗漏**：每段正文必须主动标记 1-3 个关键词（4-15 字短语），即使原文没有任何加粗也要主动加下划线——这是本 skill 的**核心特色**，也是最高频的标记手段
+3. **容器不混搭**：一篇只用所选布局的组件，不跨布局借组件；点缀组件种类 ≤3
+4. **下划线是主角**：`.kw-underline` 是全文出现最多的样式，比加粗更轻、比无色更突出，是扫描阅读的最佳标记
+5. **颜色克制**：主色用于锚点层和标记层的关键位置，正文大面积保持中性灰；对比色/警告色只在需要读者停顿的地方出现
+
+### 智能主动标记（AI 做的事，不等用户写标记）
+
+不等用户在 Markdown 里写好 `**加粗**` 和 `==高亮==`，AI 主动分析内容，替读者标记重点。 阶段① 执行时，AI 必须完成以下 7 项智能处理：
+
+1. **章节自动编号**：按 `##` 出现顺序分配 01/02/03…，末章若为结语/总结类用 `∞`
+2. **英文标签生成**：据中文章节标题生成英文标签（教程→TUTORIAL、总结→SUMMARY、思考→THOUGHTS…）
+3. **正文关键词下划线**：对**每个正文段落**主动找出 1-3 个最重要的短语标记 `.kw-underline`
+4. **引言金句高亮**：识别开头引言中的核心词，用 `.intro-highlight` 或 `.anchor-block` 标记
+5. **目录/看点提取**：从所有 `##` 取前 3 个作为导读要点
+6. **引言卡署名**：按文章作者/主题确定，未知则省略不写
+7. **尾部签名区占位**：默认 `{{作者名}}` / `{{简介}}`，用户提供则填入
+
+### 文章类型 → 组件配方
+
+先判定文章类型，再按类型选择排版系统。同类文章用同一套组件组合，保证排版气质稳定。
+
+| 文章类型 | 判据 | 推荐排版系统 | 核心组件 | 点缀组件 |
+|---------|------|------------|---------|---------|
+| 教程/操作指南 | 步骤、命令、配置词多 | `forest` 手册流 / `amber` 极客流 | `.step-block` + 代码块 + `.ordered-list` | `.tip-box` / `.warn-box` |
+| 盘点/工具清单 | 并列条目、推荐、工具词多 | `plum` 卡片流 / `teal` 经典左线 | `.card-item` + `.tool-badge` + 胶囊列表 | 表格 / 数据卡 |
+| 观点/深度分析 | 分析、逻辑、判断词多 | `navy` 杂志流 / `teal` 经典左线 | 正文段 + `.golden-quote` + `.highlight-box` | `.kw-underline` 高频 / 居中金句 |
+| 访谈/人物特稿 | 采访、引语、人物叙事多 | `navy` 杂志流 / `slate` 书信流 | 正文段 + blockquote 引语 + timeline | `.golden-quote` / 居中金句 |
+| 数据复盘/报告 | 数字、统计、对比词多 | `navy` 杂志流 / `teal` 经典左线 | 数据卡 + 表格 + `.ordered-list` | `.anchor-bold` 关键数字 |
+| 生活/情感随笔 | 我、感觉、日常词多 | `slate` 书信流 / `plum` 卡片流 | 正文段 + 居中金句 + 轻量引用 | `.kw-underline` 少量 |
+| 案例实战 | 案例、项目、踩坑词多 | `amber` 极客流 / `forest` 手册流 | case-label + `.step-block` | `.warn-box` / `.prompt-card` |
 
 ---
 
@@ -149,34 +206,172 @@ version: 1.6.0
 
 ---
 
-## 阶段 ①：排版渲染（Layout & Rendering）
+## 阶段 ①：排版渲染（Layout & Rendering）v2.0
 
-**目标**：深度理解文章 → 推荐排版系统 → 预览对比 → 用户选择 → 渲染 HTML。
+**目标**：智能预处理 → 🔴 文章类型判定确认 → 🔴 排版推荐+预览+选择 → 生成 HTML → 渲染。
 
-### ①.1 深度理解 → 推荐
+```
+①.0 智能预处理（AI 强制执行）
+  ↓
+①.1 文章类型判定 → 🔴 暂停：用户确认类型（可覆盖）
+  ↓
+①.2 排版系统推荐 + 生成预览网页 → 🔴 暂停：用户选择排版方案
+  ↓
+①.3 生成 class-based HTML（融入预处理 + 选定布局的专属结构 + 组件配方）
+  ↓
+①.4 build_inline.py 渲染 → validate 校验
+```
+
+> ⚠️ **关键顺序铁律**：必须先确认文章类型，再推荐排版系统。类型决定推荐方向，跳过类型确认直接推荐 = 跳步，禁止。
+
+### ①.0 智能预处理（v1.8.0 🔴 AI 强制执行）
+
+**在生成任何 HTML 之前**，AI 必须对优化后的 Markdown 执行以下 7 项智能处理。核心理念：不等用户写标记，AI 主动替读者做信息导航。
+
+#### ①.0.1 章节自动编号
+
+按 `##` 出现顺序分配：`01` `02` `03` …。末章若标题含「总结/结语/写在最后/尾声」等词，编号用 `∞`，PART 改为 `LAST`。
+
+- 编号不与原文标题冲突，作为章节视觉锚点
+- 中间章节不跳号、不用 `∞`
+
+#### ①.0.2 英文标签生成
+
+为每个 `##` 章节生成英文副标签（`.chapter-en` 类），用于章节标题区的装饰：
+
+| 中文关键词 | 英文标签 | 中文关键词 | 英文标签 |
+|-----------|---------|-----------|---------|
+| 教程/步骤/操作/实战/指南 | TUTORIAL | 盘点/清单/工具/推荐 | TOOLS |
+| 分析/观点/评论/深度/解读 | ANALYSIS | 案例/复盘/项目/经验 | CASE STUDY |
+| 总结/结语/写在最后/尾声 | EPILOGUE | 思考/反思/感悟 | THOUGHTS |
+| 问题/挑战/困境/难点 | PROBLEM | 方法/方案/策略/框架 | METHOD |
+| 背景/现状/趋势/格局 | CONTEXT | 数据/指标/统计 | DATA |
+| 原理/机制/本质/底层 | PRINCIPLE | 展望/未来/预测 | OUTLOOK |
+
+无明确对应时，取章节核心名词的英文翻译（≤12 字符）。
+
+#### ①.0.3 正文关键词下划线 🔴 核心特色
+
+对**每个正文段落**（`<p>` 元素），AI 主动识别 1-3 个最重要的短语（4-15 字），用 `.kw-underline` 类标记。
+
+- **优先标**：核心观点、结论判断、关键数据、专有名词、产品名
+- **不标**：过渡句、废话、整段内容
+- **整段无要点时可跳过**
+- **即使原文没有任何 `**加粗**` 标记，也要主动加下划线**——这是本 skill 出现频率最高的标记
+
+#### ①.0.4 引言金句高亮
+
+识别文章开头引言（`> 引用` 块或首段金句）中的核心关键词，用 `.intro-highlight`（主色底白字）或 `.anchor-bold`（主色加粗）标记。引言卡中最多 2 处高亮。
+
+#### ①.0.5 目录/看点提取
+
+从所有 `##` 章节标题中精选 **前 3 个**作为导读看点（非完整章节目录），生成 `.toc-card` 容器。章节多于 3 个时挑最重要的 3 个，不要硬塞。
+
+#### ①.0.6 引言卡署名
+
+按文章实际作者或主题确定引言卡署名：
+- 文章有明确作者 → 写「—— 作者名」
+- 无明确作者但主题明确 → 可用与主题相关的简短落款
+- 完全未知 → 省略署名行，不留空
+
+**不要固定写任何默认人名。**
+
+#### ①.0.7 尾部签名区占位
+
+在文末 CTA 之前生成签名段落，**默认用占位符**，让用户替换成自己的署名：
+
+- 用户在请求/偏好里给了署名或简介 → 直接填入
+- 没给 → 保留 `{{作者名}}` / `{{一句话简介}}` 占位，交付时提示用户替换
+- 原文末尾已有作者签名段 → 直接沿用原文，不替换成占位
+- **签名区有且仅有末尾一处**
+
+---
+
+### ①.1 🔴 第一步：文章类型判定（先确认类型，不推荐排版）
+
+> ⚠️ **这一步只做类型判定，不推荐排版系统。排版推荐在 ①.2 用户确认类型之后。**
 
 1. 阅读优化后的文章，理解内容类型、情感基调、目标读者
-2. 调用 `recommend()` 做关键词匹配分析，得出 6 套系统的分数排名
-3. 结合内容理解和关键词分数，向用户说明推荐理由
+2. 调用 `detect_content_type()` 判定文章类型
+3. **列出全部 7 种类型供用户选择**，标注 AI 判定的推荐项：
 
-### ①.2 生成预览网页
+```
+📝 AI 判定文章类型：**{类型名}**（置信度：{高/中/低}）
+
+你也可以选择其他类型（不同类型的推荐结果不同）：
+
+| 序号 | 文章类型 | 适合场景 |
+|------|---------|---------|
+| 1 | 生活/情感随笔 ⭐ 推荐 | 读书感悟、个人叙事、情感表达 |
+| 2 | 观点/深度分析 | 论证推演、逻辑分析、评论 |
+| 3 | 访谈/人物特稿 | 引语多、人物叙事多 |
+| 4 | 案例实战 | 项目复盘、踩坑经验 |
+| 5 | 盘点/工具清单 | 并列条目、推荐合集 |
+| 6 | 教程/操作指南 | 步骤、命令、操作流程 |
+| 7 | 数据复盘/报告 | 数字统计、对比分析 |
+```
+
+**🔴 必须暂停等待用户确认**。用户可回复：
+- 「确认」/「用推荐的」→ 使用 AI 判定类型
+- 序号或类型名 → 更换为用户指定的类型
+- 自定义描述 → 按用户描述调整
+
+**用户确认类型后，才进入 ①.2。**
+
+---
+
+### ①.2 🔴 第二步：排版系统推荐 + 预览对比
+
+> ⚠️ **用户确认文章类型后执行。** AI 先生成一个临时 class-based HTML（用于文本提取，任意布局即可），然后运行 preview_themes.py。
+
+1. 调用 `recommend()` 做关键词匹配 + 文章类型加权，得出 12 套预设的分数排名
+2. 向用户说明推荐结果：
+
+```
+📊 排版系统推荐（基于类型：{类型名}）：
+
+| 排名 | 预设 | 布局 × 配色 | 得分 | 来源 |
+|------|------|------------|------|------|
+| ⭐ 1 | slate 岩灰书信 | 书信流 × 岩灰玫瑰 | 20 分 | 原有 |
+| 2 | ruby 红白编辑 | 红白编辑 × 红白配色 | 7 分 | v2.0 新增 |
+| ...
+```
+
+3. 生成临时 class HTML → 运行 `preview_themes.py` 生成预览页：
 
 ```bash
 python3 scripts/preview_themes.py output/article-class-html.html --open
 ```
 
-自动提取文章代表性片段，用全部 6 套排版系统渲染，生成对比页并在浏览器打开。
+**v2.0 预览页特性**：
+- 12 套布局 × 各自专属 HTML 结构样本（不是同一段 HTML 换皮肤）
+- 四栏 grid 布局，响应式（>1200px 四栏 → >900px 三栏 → >560px 两栏 → 手机一栏）
+- 每张卡片标注：📐 布局名 + 🎨 配色名 + 🏷️ 适用文章类型
+- 推荐项 ⭐ 金色边框高亮
+- 每张卡片展示该布局的专属组件（封面卡/流程卡/时间线/END 分割线/引言卡等）
 
-每张卡片标注：📐 布局名 + 🎨 配色名 + 实际渲染效果。推荐项 ⭐ 高亮。
-
-### ①.3 用户选择
-
-**🔴 必须暂停等待**。用户可回复：
-
-- 预设名：`teal` `navy` `forest` `plum` `slate` `amber`
-- 自由组合：`classic:teal-gold` `workshop:navy-coral`
-- 自定义颜色：`#e63946`
+**🔴 必须暂停等待用户选择**。用户可回复：
+- 预设名：`slate` `ruby` `zen` `moyu` `olive` `ticket` `graph` `teal` `navy` `forest` `plum` `amber`
+- 自由组合：`zen:slate-rose` `moyu:emerald`（布局:配色）
+- 自定义颜色：`#e63946`（默认 classic 布局，自动推导配色）
 - 「用推荐的」→ 分数最高项
+
+---
+
+### ①.3 生成 class-based HTML（融入智能预处理 + 选定布局专属结构）
+
+**在运行 build_inline.py 之前**，AI 用选定布局的专属结构生成 class-based HTML。必须满足：
+
+1. **结构骨架**：使用选定布局的专属 HTML 模板（参见 4.3 章节「各布局推荐组件配方」表）
+2. **章节**：`.chapter-num` / `.chapter-num-final` 编号 + `.chapter-en` 英文标签
+3. **正文**：每段 `.kw-underline` 标记 1-3 个关键词
+4. **锚点**：`.anchor-bold` 或 `.anchor-block` 全文 ≤5 处
+5. **引言**：`.intro-highlight` 高亮核心词（如有引言卡）
+6. **目录**：`.toc-card` + `.toc-num` + `.toc-item`（≥3 章节时）
+7. **签名**：末尾 `.sig-placeholder` 占位（或用户提供的署名）
+8. **容器组件**：按「各布局推荐组件配方」表使用，点缀 ≤3 种
+9. **通用组件**（v2.0）：`.tag-step`/`.tag-case`/`.tag-skill` 内容标签、`.flow-row` 流程卡、`.tl-row` 时间线、`.end-divider` END 分割线、`.cover-card` 封面卡、`.info-note` 信息旁注等——按需选用
+10. **头图**：class-based HTML 中**不写头图 `<img>`**（由 upload.py 自动注入）
 
 ### ①.4 渲染
 
@@ -184,20 +379,26 @@ python3 scripts/preview_themes.py output/article-class-html.html --open
 python3 scripts/build_inline.py output/article-class-html.html output/article-inline.html --theme <选定>
 ```
 
-### ①.5 HTML 生成流程
+`build_inline.py` 自动完成：
+- class → inline style 转换
+- `<span leaf="">` 包裹所有文本节点（v1.9.0）
+- `validate_output()` 强制校验
 
-**Step 1**：根据选定的排版系统，用其专属组件库编写 class-based HTML
-**Step 2**：运行 `build_inline.py --theme` 转换为 inline style HTML
-**Step 3**：验证（零 style/div/class/linear-gradient/letter-spacing）
-
-### ①.6 排版质量检查
+### ①.5 排版质量检查（v2.0 更新）
 
 - [ ] 全文无 `<style>`、`class=`、`<div>`、`linear-gradient`、`letter-spacing`
+- [ ] **🔴 全文文本已由 `build_inline.py` 自动包裹 `<span leaf="">`（v1.9.0 自动执行，`validate_output` 强制校验，不可跳过）**
 - [ ] 正文行高 ≥ 1.8，字号 ≥ 15px
-- [ ] H2 视觉层级正确，关键观点用金句/强调模块包裹
+- [ ] **🔴 每段正文含 1-3 个 `.kw-underline` 关键词下划线**
+- [ ] **🔴 章节编号连续（01/02/03…∞），不跳号**
+- [ ] **🔴 `.anchor-bold` / `.anchor-block` 全文 ≤ 5 处**
+- [ ] H2 视觉层级正确，英文标签已生成
+- [ ] 关键观点用金句/强调模块包裹
 - [ ] CTA 后有底部留白（≥32px）
 - [ ] 颜色来自配色色板，全文主色一致
-- [ ] 头图位和配图位已标记（由 upload.py 阶段③自动注入）
+- [ ] **🔴 签名区仅末尾一处，默认占位或用户提供**
+- [ ] 头图位和配图位已标记（由 upload.py 阶段②自动注入）
+- [ ] v2.0 通用组件按布局配方使用，点缀种类 ≤3
 
 ---
 
@@ -240,7 +441,7 @@ python3 scripts/build_inline.py output/article-class-html.html output/article-in
 
 | 原始 div 用途 | 替换元素 | 示例 |
 |-------------|---------|------|
-| 页面容器 | `<section style="...">` | `<section style="max-width:677px;margin:0 auto;...">` |
+| 页面容器 | `<section style="...">` | `<section style="margin:0;padding:0 16px 0;...">` |
 | 元信息标签 | `<span style="display:inline-block;...">` 包在 `<p>` 中 | `<p style="text-align:center;"><span style="...">深度解析</span></p>` |
 | 开篇大数字 | `<p>` + `<strong>` | `<p style="text-align:center;"><strong style="font-size:56px;">9,500 ★</strong></p>` |
 | 金句模块 | `<blockquote style="...">`（不设左边框） | `<blockquote style="background-color:#d4edf5;border-radius:12px;text-align:center;">` |
@@ -252,53 +453,91 @@ python3 scripts/build_inline.py output/article-class-html.html output/article-in
 | 编辑注记 | `<p style="...">`（左侧灰色细线） | `<p style="border-left:2px solid #dce3ea;color:#8a9aaa;font-style:italic;">` |
 | 超长引用（>300字） | `<section style="...">`（左边框 + 略小字号，视觉等效 blockquote 但不触发微信 300 字限制） | `<section style="border-left:3px solid #0d7377;margin:16px 0;padding:4px 0 4px 18px;"><p style="font-size:14px;color:#4a5a6a;">...</p></section>` |
 
-### 4.3 6 套异构排版系统（v1.6.0）
+### 4.3 6 套异构排版系统（v1.8.0）
 
 每套排版系统拥有**独立的组件库、HTML 结构和视觉语言**，不是同一骨架换 CSS。
 
 #### 排版系统一览
 
-| 系统 | 设计理念 | H2 特征 | 独有组件 | 参考 |
-|------|---------|---------|---------|------|
-| `classic` 经典左线 | 左粗线分区，结构清晰 | 左蓝条+浅底 | `.golden-quote` `.card-item` `.highlight-box` | 咨询报告 |
-| `cardflow` 卡片流 | 每段独立成卡，模块化 | 深色顶栏（卡片标题） | `.section-card` `.info-card` `.data-badge` | Notion |
-| `editorial` 杂志流 | 大标题+引题+戏剧化引用 | 居中+上下装饰线 | `.lead` `.ornament-divider` `.image-frame` | The Atlantic |
-| `guide` 手册流 | 步骤编号+提示框+对比 | 最大号无装饰 | `.step-num` `.tip-box` `.warn-box` `.checklist-item` `.before-after` | 操作指南 |
-| `letter` 书信流 | 日期+问候+署名，极简 | 只比正文略大 | `.dateline` `.greeting` `.sign-off` `.signature` `.postscript` | Substack |
-| `workshop` 极客流 | 深色实验台+Prompt卡+工具徽章 | 深底白字，等宽感 | `.prompt-card` `.tool-badge` `.workflow-step` `.wf-step-num` | 开发者笔记 |
+| 系统 | 设计理念 | H2 特征 | 独有组件 | 适用文章类型 |
+|------|---------|---------|---------|------------|
+| `classic` 经典左线 | 左粗线分区，结构清晰 | 左蓝条+浅底 | `.golden-quote` `.card-item` `.highlight-box` | 观点分析、工具盘点 |
+| `cardflow` 卡片流 | 每段独立成卡，模块化 | 深色顶栏（卡片标题） | `.section-card` `.info-card` `.data-badge` | 产品介绍、工具清单 |
+| `editorial` 杂志流 | 大标题+引题+戏剧化引用 | 居中+上下装饰线 | `.lead` `.ornament-divider` `.image-frame` | 商业评论、人物访谈 |
+| `guide` 手册流 | 步骤编号+提示框+对比 | 最大号无装饰 | `.step-num` `.tip-box` `.warn-box` | 教程指南、案例实战 |
+| `letter` 书信流 | 日期+问候+署名，极简 | 只比正文略大 | `.dateline` `.greeting` `.sign-off` `.postscript` | 个人随笔、生活感悟 |
+| `workshop` 极客流 | 深色实验台+Prompt卡+工具徽章 | 深底白字，等宽感 | `.prompt-card` `.tool-badge` `.workflow-step` | 技术编程、AI 实战 |
+| `moyu` 摸鱼杂志 | 翠绿卡片+黄色高亮+虚线引用 | 大号绿字+深色标题 | `.cover-card` `.pill-capsule` `.flow-row` | 教程测评、工具盘点 |
+| `red-editorial` 红白编辑 | 正红点睛+克制白底+戏剧引言卡 | 红底编号+底部红色实线 | `.intro-card` `.intro-quote-mark` `.end-divider` | 观点分析、读书感悟 |
+| `graphite` 素砚 | 全灰阶+1px细线，极致克制 | 无底色大留白 | `.golden-quote`（上下细线） `.highlight-box` | 设计评论、科技观点 |
+| `zen` 虚白 | 虚室生白+大呼吸感，极简 | 衬线体+64px 章间距 | `.golden-quote`（无线框） `.card-item`（底部分割线） | 深度随笔、读书笔记 |
+| `ticket` 票根 | 票据隐喻+硬阴影+撕票虚线 | 虚线上下边框 | `.golden-quote`（硬阴影） `.card-item`（硬阴影） | 工具对比、创意测评 |
+| `olive` 墨帖 | 墨色深底+暖橙点睛，编辑质感 | 深色底栏+6px 小圆角 | `.golden-quote`（橙左边条） `.tl-row` `.highlight-box` | 案例复盘、深度评测 |
 
-#### 关键区别
+#### 12 套预设主题组合（v2.0）
 
-同一篇文章用不同排版系统，**golden-quote（金句）** 的渲染完全不同：
-- `classic`：圆角蓝底居中卡片
-- `cardflow`：卡片底部横幅
-- `editorial`：上下装饰线+大号居中
-- `guide`：深色满底反白块
-- `letter`：无底无边框，纯文字加大加粗
-- `workshop`：深色实验台+对比色文字
+| 预设名 | 布局 | 配色 | 适用内容 | 适用文章类型 |
+|--------|------|------|---------|------------|
+| `teal` | classic 经典左线 | teal-gold 青蓝金 | 通用深度分析 | `opinion` `list` `tutorial` |
+| `navy` | editorial 杂志流 | navy-coral 深蓝珊瑚 | 商业/行业评论 | `opinion` `interview` `data` |
+| `forest` | guide 手册流 | forest-amber 森语琥珀 | 教程/操作指南 | `tutorial` `case` |
+| `plum` | cardflow 卡片流 | plum-sage 梅紫灰绿 | 产品/工具介绍 | `list` `personal` `case` |
+| `slate` | letter 书信流 | slate-rose 岩灰玫瑰 | 个人随笔/故事 | `personal` `interview` |
+| `amber` | workshop 极客流 | forest-amber 森语琥珀 | 技术/AI/编程 | `tutorial` `case` `list` |
+| `moyu` | moyu 摸鱼杂志 | emerald 摸鱼绿 | 教程测评/工具盘点 | `tutorial` `list` `case` `opinion` |
+| `ruby` | red-editorial 红白编辑 | crimson 红白编辑 | 观点分析/读书感悟 | `opinion` `personal` `interview` |
+| `graph` | graphite 素砚 | graphite 素砚 | 设计/科技/高端品牌 | `opinion` `data` `case` |
+| `zen` | zen 虚白 | zen 虚白 | 深度随笔/读书笔记 | `personal` `opinion` `interview` |
+| `ticket` | ticket 票根 | ticket 票根 | 工具对比/创意测评 | `list` `case` `tutorial` |
+| `olive` | olive 墨帖 | olive 墨帖 | 案例复盘/深度评测 | `case` `opinion` `tutorial` |
 
-#### 5 套多对比色配色方案（决定颜色组合）
+#### 🆕 v1.8.0 智能标记 CSS 类（全布局通用）
 
-| 配色名 | 主色 | 对比色 | 气质 |
-|--------|------|--------|------|
-| `teal-gold` | `#0d7377` 青蓝 | `#c8940a` 暖金 | 理性中带温度 |
-| `navy-coral` | `#2c3e6b` 深蓝 | `#d4685c` 珊瑚 | 专业不过分严肃 |
-| `forest-amber` | `#2d6a4f` 深绿 | `#d4923a` 琥珀 | 自然沉稳有生机 |
-| `plum-sage` | `#7c3a8c` 梅紫 | `#6b8b7a` 灰绿 | 文艺不张扬 |
-| `slate-rose` | `#4a5568` 岩灰 | `#c57080` 玫瑰 | 克制中带柔软 |
+以下新增类在所有 6 套布局中可用，由 AI 在阶段①.0 智能预处理时主动标记，build_inline.py 自动转换为 inline style：
 
-每个配色包含 16 个色值 token（primary/contrast/bg_light/bg_warm/bg_dark/text_on_dark/text_dark/text_body/text_muted/border/border_light/card_bg/code_bg/code_color/white/body_bg），确保全文色彩协调。
+| CSS 类 | 层级 | 用途 | 频率 |
+|--------|------|------|------|
+| `.kw-underline` | 🟡 标记层 | 主题色下划线——关键词标记的**默认手段** | 每段 1-3 处 |
+| `.kw-underline-warn` | 🟡 标记层 | 对比色下划线——对比/否定专用 | 偶尔 |
+| `.highlight-marker` | 🟡 标记层 | 荧光笔效果——偶尔长句强调 | 偶尔 |
+| `.anchor-bold` | 🔴 锚点层 | 主色加粗——最强强调 | 全文 ≤5 处 |
+| `.anchor-block` | 🔴 锚点层 | 主色底白字标签——视觉锚点 | 全文 ≤3 处 |
+| `.intro-highlight` | 🔴 锚点层 | 引言核心词高亮——开场焦点 | 引言内 ≤2 处 |
+| `.chapter-num` | ⚪ 结构层 | 章节大号编号（01/02…） | 每章 1 处 |
+| `.chapter-num-final` | ⚪ 结构层 | 结语编号变体（∞） | 末章 1 处 |
+| `.chapter-en` | ⚪ 结构层 | 英文章节副标签 | 每章 1 处 |
+| `.toc-card` / `.toc-num` / `.toc-item` | ⚪ 容器层 | 目录/看点卡片 | ≥3 章时 1 组 |
+| `.sig-placeholder` | ⚪ 结构层 | 签名区占位 | 文末 1 处 |
 
-#### 6 套预设主题组合
+#### 🆕 v2.0 通用组件库（跨布局可用）
 
-| 预设名 | 布局 | 配色 | 适用内容 |
+| CSS 类 | 类别 | 用途 | 适用布局 |
 |--------|------|------|---------|
-| `teal` | classic 经典左线 | teal-gold 青蓝金 | 通用深度分析 |
-| `navy` | editorial 杂志流 | navy-coral 深蓝珊瑚 | 商业/行业评论 |
-| `forest` | guide 手册流 | forest-amber 森语琥珀 | 教程/操作指南 |
-| `plum` | cardflow 卡片流 | plum-sage 梅紫灰绿 | 产品/工具介绍 |
-| `slate` | letter 书信流 | slate-rose 岩灰玫瑰 | 个人随笔/故事 |
-| `amber` | workshop 极客流 | forest-amber 森语琥珀 | 技术/AI/编程 |
+| `.tag-step` `.tag-case` `.tag-skill` | 内容标签 | STEP/CASE/SKILL 编号标签 | guide, moyu, olive, workshop |
+| `.flow-row` `.flow-active` `.flow-inactive` `.flow-arrow` | 流程卡片 | 3 步横排流程展示 | moyu, guide, workshop |
+| `.tl-row` `.tl-dot-circle` `.tl-dot-line` `.tl-body` | 时间线 | 递进/经历脉络 | olive, editorial, red-editorial |
+| `.end-divider` `.end-line-l` `.end-line-r` `.end-label` | END 分割 | 章节结束标记 | red-editorial, editorial, letter |
+| `.pill-capsule` | 胶囊列表 | 行内圆角标签 | moyu, classic, cardflow |
+| `.cover-card` `.cover-tag` `.cover-title` `.cover-subtitle` | 封面卡 | 文章开篇封面 | moyu, red-editorial, olive |
+| `.info-note` | 信息旁注 | 左竖条提示/名词解释 | red-editorial, classic, editorial |
+| `.cta-triple` `.cta-action` `.cta-icon-box` | CTA 三连 | 点赞/在看/转发三连区 | 所有布局（文末） |
+
+#### 各布局推荐组件配方
+
+| 布局 | 常用组件 | 点缀组件 |
+|------|---------|---------|
+| classic 经典左线 | `.golden-quote` `.highlight-box` `.card-item` | `.info-note` `.pill-capsule` |
+| cardflow 卡片流 | `.section-card` `.info-card` `.data-badge` | `.golden-quote` |
+| editorial 杂志流 | `.lead` `.golden-quote` `.ornament-divider` | `.end-divider` `.tl-row` |
+| guide 手册流 | `.step-block` `.tip-box` `.warn-box` | `.tag-step` `.flow-row` |
+| letter 书信流 | `.dateline` `.greeting` `.sign-off` | `.end-divider` |
+| workshop 极客流 | `.prompt-card` `.tool-badge` `.workflow-step` | `.tag-skill` `.flow-row` |
+| moyu 摸鱼杂志 | `.cover-card` `.golden-quote` `.card-item` | `.flow-row` `.pill-capsule` `.tag-step` |
+| red-editorial 红白编辑 | `.intro-card` `.golden-quote` `.end-divider` | `.info-note` `.tl-row` |
+| graphite 素砚 | `.golden-quote` `.highlight-box` | `.cover-card` |
+| zen 虚白 | `.golden-quote`（无线框居中） `.card-item`（底部分割线） | 几乎不加装饰 |
+| ticket 票根 | `.golden-quote`（硬阴影） `.card-item`（硬阴影） | `.cover-card` `.meta-tag` |
+| olive 墨帖 | `.golden-quote`（橙左边条） `.highlight-box` | `.tl-row` `.tag-skill` `.info-note` |
 
 #### 使用方式
 
@@ -315,21 +554,25 @@ python3 scripts/build_inline.py in.html out.html --theme "#e63946"
 
 ---
 
-### 4.3.5 主题推荐与可视化预览（v1.3.0）🔴 强制交互节点
+### 4.3.5 主题推荐与可视化预览（v1.8.0）🔴 强制交互节点
 
 在运行 `build_inline.py` 之前，**必须**执行以下交互流程：
 
-#### 步骤 A：内容分析 → 自动推荐
+#### 步骤 A：文章类型判定 + 自动推荐
 
-调用 `recommend_theme()` 分析文章文本，按关键词匹配度评分。每个主题内置一组关键词：
+调用 `detect_content_type(text)` → `recommend(text)` 分析文章文本。`recommend()` 返回：
 
-| 主题 | 匹配关键词 | 适合内容类型 |
-|------|-----------|-------------|
-| `navy` 靛蓝 | 商业、行业、市场、数据、报告、战略、投资、利润、竞争 | 商业分析、行业评论 |
-| `forest` 深绿 | 教程、步骤、操作、配置、代码、实战、指南、工具、方法 | 技术教程、操作指南 |
-| `amber` 暖金 | 我、经历、感受、故事、碎碎念、随笔、生活、日常 | 个人随笔、经验分享 |
-| `teal` 青蓝 | 分析、深度、观点、评论、趋势、解读、思考、本质 | 深度分析、通用评论 |
-| `plum` 梅紫 | 创意、设计、艺术、文艺、审美、灵感、创作、风格 | 创意输出、文艺评论 |
+```python
+{
+    "presets": [("forest", {...}, 16), ("amber", {...}, 13), ...],  # 降序排列
+    "content_type": "tutorial",          # 文章类型 ID
+    "content_type_name": "教程/操作指南",  # 中文名
+    "content_type_confidence": "high",    # high/medium/low
+    "secondary_type": "case",             # 次类型（可能为 None）
+}
+```
+
+推荐逻辑：关键词匹配分 + 文章类型加权（高置信度 +3 分，中 +1 分），确保同类型文章推荐稳定。
 
 #### 步骤 B：生成可视化预览网页
 
@@ -337,24 +580,13 @@ python3 scripts/build_inline.py in.html out.html --theme "#e63946"
 python3 scripts/preview_themes.py output/article-class-html.html --open
 ```
 
-该脚本自动：
-1. 从 class HTML 中提取代表性片段（开篇 + 首个 H2 板块）
-2. 用全部 6 套排版系统渲染同一段内容
-3. 生成深色主题对比页 `output/theme-preview.html`
-4. 自动在浏览器中打开
-
-预览页包含：
-- 📊 **评分图例**：显示每个主题的匹配分数（降序）
-- 🎨 **5 列并排卡片**：每个主题在实际文章片段上的渲染效果
-- ⭐ **推荐标记**：得分最高的 2 个主题高亮显示（金色边框 + 推荐徽章）
-- 💡 **操作提示**：底部提示用户如何选择
-
 #### 步骤 C：用户选择
 
 预览页打开后，**必须暂停等待用户选择**。用户可回复：
-- 主题名：`navy`、`amber`、`forest`、`teal`、`plum`
+- 预设名：`navy`、`amber`、`forest`、`teal`、`plum`、`slate`
+- 自由组合：`classic:teal-gold` `workshop:navy-coral`
 - 自定义颜色：`#e63946`
-- 默认确认：「就用推荐的」→ 使用得分最高的主题
+- 「用推荐的」→ 使用得分最高的预设
 
 #### 步骤 D：进入 build_inline.py
 
@@ -395,7 +627,7 @@ python3 scripts/build_inline.py output/article-class-html.html output/article-in
 
 ⚠️ **头图（v1.3.0）**：class-based HTML 中**不要写头图 `<img>`**。头图由 `upload.py` 自动上传 `img/header_image.png` 并在阶段⑤注入正文顶部。
 
-**Step 2**：用 `build_inline.py` 将 class 映射转换为 inline style
+**Step 2**：用 `build_inline.py` 将 class 映射转换为 inline style（v1.9.0：自动包裹 `<span leaf="">`）
 ```bash
 python3 scripts/build_inline.py output/article-class-html.html output/article-inline.html --theme teal
 ```
@@ -404,7 +636,9 @@ python3 scripts/build_inline.py output/article-class-html.html output/article-in
 # 否则 HTMLParser 会把 &lt; &gt; 转成 < >，导致 <code> 内的标签被当作真标签吃掉内容
 parser = HTMLParser(convert_charrefs=False)
 # 移除所有 class 属性，注入对应的 style 属性（颜色来自主题色板）
+# 🆕 v1.9.0：同时自动为所有文本节点包裹 <span leaf="">，防微信剥离样式
 ```
+⚠️ AI 在生成 class-based HTML 时**不需要手写 `<span leaf="">`**——`build_inline.py` 的 `InlineStyleConverter.handle_data()` 自动完成包裹，`validate_output()` 强制校验。
 
 **Step 3**：后处理嵌套上下文冲突（blockquote p、pre code、golden-quote p、cta-footer p 等）
 ⚠️ 嵌套覆盖必须追踪父级 class 名，不能只追踪 tag 名。例如 `golden-quote` 下的 `<p>` 和普通 `blockquote` 下的 `<p>` 需要不同的覆盖样式。
@@ -519,9 +753,11 @@ python3 scripts/upload.py \
 
 `upload.py` 内部流程：
 
-**步骤 1**：上传 `img/header_image.png` → 获取微信 CDN URL → 注入 `<img>` 到正文顶部（`<section>` 之后）
+**步骤 0**：去除 `<section>` 外层容器 → 让内容直接填满微信文章区宽度（v1.7.0）
 
-**步骤 2**：注入底部留白 `<p style="margin:0;padding:0;height:32px;"><br></p>` 到 `</section>` 之前
+**步骤 1**：上传 `img/header_image.png` → 获取微信 CDN URL → 注入 `<img>` 到正文最前面
+
+**步骤 2**：追加底部留白 `<p style="margin:0;padding:0;height:0;"><br></p>` 到正文最后
 
 **步骤 3**：上传 `img/cover.png` → 获取 `thumb_media_id`（若不存在则自动生成品牌色封面 fallback）
 
@@ -774,6 +1010,73 @@ def text_to_wechat_block(content, style_extras=""):
 **适用范围**：目录树、代码块、配置文件全文、Markdown 原文展示——任何依赖换行和空格对齐的格式化文本，一律用此方案，**禁止使用 `<pre>`**。
 
 **禁止 `<pre>` 的唯一例外**：`build_inline.py` 的验证逻辑中，`<pre>` 仅在 `<code>` 展示 HTML 标签转义示例（如 `&lt;style&gt;`）时可用于 class-based 中间文件，但**最终输出到微信的 HTML 必须零 `<pre>`**。
+
+### 铁律 8：每段正文必须标记 1-3 个关键词下划线（v1.8.0）
+
+```html
+<!-- ❌ 错误：整段没有任何标记，读者扫过去全是灰字，信息密度为零 -->
+<p style="..."><span leaf="">前端通过自然语言描述需求，Agent 自动完成从代码生成到部署的全链路。</span></p>
+
+<!-- ✅ 正确：AI 主动标记 1-3 个关键短语 -->
+<p style="...">
+  <span leaf="">前端通过</span>
+  <span style="border-bottom:2px solid #0d737740;font-weight:600;"><span leaf="">自然语言描述需求</span></span>
+  <span leaf="">，Agent 自动完成从</span>
+  <span style="border-bottom:2px solid #0d737740;font-weight:600;"><span leaf="">代码生成到部署</span></span>
+  <span leaf="">的全链路。</span>
+</p>
+```
+
+**根因**：公众号是扫描式阅读。读者不会逐字读，而是用眼睛扫关键词。没有下划线标记的段落 = 读者什么都抓不住 = 跳出。`.kw-underline` 是全文出现频率最高的样式，**必须逐段落实**。
+
+### 铁律 9：章节编号必须连续，末章结语用 ∞（v1.8.0）
+
+```html
+<!-- ❌ 错误：编号跳号（01 → 03），或中间章节用了结语编号 ∞ -->
+<!-- ❌ 错误：末章是"写在最后"但编号仍是普通数字 04 -->
+
+<!-- ✅ 正确：01 → 02 → 03 → ∞，严格连续 -->
+<span class="chapter-num" leaf="">01</span>  <!-- 第一章 -->
+<span class="chapter-num" leaf="">02</span>  <!-- 第二章 -->
+<span class="chapter-num" leaf="">03</span>  <!-- 第三章 -->
+<span class="chapter-num-final" leaf="">∞</span>  <!-- 结语章 -->
+```
+
+**根因**：章节编号是读者的空间导航。跳号会让读者困惑"我漏看了什么？"；末章不用 ∞ 区分会让结语淹没在正文中。
+
+### 铁律 10：锚点层全文 ≤ 5 处（v1.8.0）
+
+`.anchor-bold`（主色加粗）和 `.anchor-block`（主色底白字标签）只在全文最关键的 ≤5 处使用——产品名、核心结论、CTA 动词。**到处锚点 = 没有锚点**。正文日常强调用 `.kw-underline`（标记层），不要滥用 `.anchor-bold`。
+
+### 铁律 11：签名区仅末尾一处，默认占位（v1.8.0）
+
+- 签名区（「我是 {{作者名}}…」+「点赞、在看、转发」）**只在文末 CTA 之前出现一次**
+- 原文末尾已有作者签名段的，直接沿用原文，不另生成
+- 默认用 `{{作者名}}` / `{{一句话简介}}` 占位符——**不要写死任何人名**
+- 中间章节不出现签名式段落
+
+### 铁律 12：点缀组件种类 ≤ 3，不跨布局混用（v1.8.0）
+
+一篇只用所选布局的组件 + 通用视觉层级类。`.tip-box` / `.warn-box` / `.prompt-card` / `.card-item` 等容器级组件，全篇点缀种类 ≤3，避免花哨。**不要从其他布局借组件**——每个布局的组件是成套设计的，混用会破坏排版气质一致性。
+
+### 铁律 13：所有文本节点必须包裹 `<span leaf="">` ——微信防样式剥离的命门（v1.9.0）
+
+```html
+<!-- ❌ 错误：裸文本直接放在 <p> 内，微信可能剥离样式 -->
+<p style="...">这是一段正文内容</p>
+
+<!-- ✅ 正确：文本包裹在 <span leaf=""> 中 -->
+<p style="..."><span leaf="">这是一段正文内容</span></p>
+```
+
+**根因**：微信公众号编辑器在处理粘贴的 HTML 时，会对没有 `<span>` 包裹的裸文本进行"样式归一化"——轻则丢失加粗/颜色，重则整段样式崩塌。`<span leaf="">` 是唯一可靠的全平台防剥离手段。
+
+**实施方式**（v1.9.0 起自动执行）：
+- `build_inline.py` 的 `InlineStyleConverter.handle_data()` 自动为所有文本节点包裹 `<span leaf="">`
+- `validate_output()` 强制检查 leaf 包裹数量，为 0 时报错
+- AI 在生成 class-based HTML 时**不需要**手写 `<span leaf="">`——转换管线自动补全
+- **例外**：`<code>` 和 `<pre>` 内的文本保持原样（代码内容不容干扰）
+- **防双重包裹**：转换器自动检测已存在的 `<span leaf="">`，不会嵌套
 
 ---
 
